@@ -111,12 +111,10 @@ LABEL_COL_CANDIDATES = (
   "value",
 )
 
-def _loadcsv_dataset(path: Path, number_folds: int = 5,
-                            fold_col: str = "split", test_fold: int = 0,
-                            val_fold: int = 1) -> Dict[str, object]:
+def _loadcsv_dataset(path: Path, fold_col: str = "split",) -> Dict[str, object]:
 
     # Load all csvs 
-    # Assign random folds if missing split into train/val/test
+    # Assumes that the data has already been split into train/val/test folds
     # Creates a CSVSdataset wrapper to provide column names and iterable rows
     # Returns train/val/tet spilt as a dict
 
@@ -125,14 +123,9 @@ def _loadcsv_dataset(path: Path, number_folds: int = 5,
       raise ValueError(f"No CSV files found in {path}")
     df = pd.concat(dfs, ignore_index=True)
 
-    if fold_col not in df.columns:
-      print(f"'{fold_col}' not found in assay file. Assigning {number_folds} folds at random")
-      np.random.seed(42) 
-      df[fold_col] = np.random.randint(0, number_folds, size=len(df))
-
-    test_df = df[df[fold_col] == test_fold].reset_index(drop=True)
-    val_df = df[df[fold_col] == val_fold].reset_index(drop=True)
-    train_df = df[~df[fold_col].isin([test_fold, val_fold])].reset_index(drop=True)
+    train_df = df[df[fold_col] == "train"].reset_index(drop=True)
+    val_df = df[df[fold_col] == "validation"].reset_index(drop=True)
+    test_df = df[df[fold_col] == "test"].reset_index(drop=True)
 
     ds_dict = {
         "train": CSVDataset(train_df),
@@ -268,10 +261,7 @@ def _insert_task_samples(con: duckdb.DuckDBPyConnection, task: TaskSpec, cache_d
   # Load a task dataset and insert normalized sample rows.
   # We call `load_dataset` without split=... so we can iterate all available splits.
   if "proteingym" in task.dataset.lower():
-      ds_dict = _loadcsv_dataset(
-         Path(proteingym),
-          number_folds=5  # total number of CV folds
-      )
+      ds_dict = _loadcsv_dataset(Path(proteingym))
   else:
       ds_dict = load_dataset(task.dataset, task.subset, cache_dir=cache_dir)
   selected_splits = _iter_selected_splits(task, ds_dict)
