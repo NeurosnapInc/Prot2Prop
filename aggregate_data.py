@@ -106,7 +106,7 @@ TASKS: List[TaskSpec] = [
     num_classes=None,
     loss="mse",
   ),
-  # ProtienGym DMS Substitution dataset
+  # ProteinGym DMS Substitution dataset
   TaskSpec(
     task_name="ProteinGym",
     dataset="ProteinGym",
@@ -116,6 +116,46 @@ TASKS: List[TaskSpec] = [
     loss="mse",
     sequence_col="mutated_sequence",
     label_col="DMS_score",
+  ),
+  TaskSpec(
+    task_name='activity',
+    dataset='ProteinGym/activity',
+    dtype='float',
+    head_type='sequence_regression',
+    num_classes=None,
+    loss='mse',
+    sequence_col='mutated_sequence',
+    label_col='DMS_score',
+  ),
+  TaskSpec(
+    task_name='binding',
+    dataset='ProteinGym/binding',
+    dtype='float',
+    head_type='sequence_regression',
+    num_classes=None,
+    loss='mse',
+    sequence_col='mutated_sequence',
+    label_col='DMS_score',
+  ),
+  TaskSpec(
+    task_name='expression',
+    dataset='ProteinGym/expression',
+    dtype='float',
+    head_type='sequence_regression',
+    num_classes=None,
+    loss='mse',
+    sequence_col='mutated_sequence',
+    label_col='DMS_score',
+  ),
+  TaskSpec(
+    task_name='stability',
+    dataset='ProteinGym/stability',
+    dtype='float',
+    head_type='sequence_regression',
+    num_classes=None,
+    loss='mse',
+    sequence_col='mutated_sequence',
+    label_col='DMS_score',
   ),
 ]
 
