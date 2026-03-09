@@ -12,16 +12,13 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
-import pandas as pd
-from pathlib import Path
+
 import duckdb
+import pandas as pd
 from datasets import load_dataset
-from typing import Iterator
-import numpy as np
+
 
 @dataclass(frozen=True)
-
-
 class TaskSpec:
   # Dataset configuration for one property task.
   # `dtype` drives label coercion (all labels are stored as float in `samples`).
@@ -37,18 +34,20 @@ class TaskSpec:
   label_col: Optional[str] = None
   subset: Optional[str] = None
 
+
 class CSVDataset:
   # Class to load CSV datasets.
-  #Provides `column_names` and iterable row dicts for aggregation scripts.
+  # Provides `column_names` and iterable row dicts for aggregation scripts.
   def __init__(self, df: pd.DataFrame):
-    self.rows = df.to_dict(orient="records") 
-    self.column_names = df.columns.tolist() 
+    self.rows = df.to_dict(orient="records")
+    self.column_names = df.columns.tolist()
 
   def __iter__(self) -> Iterable[dict]:
     return iter(self.rows)
 
   def __len__(self):
     return len(self.rows)
+
 
 # Source priority is defined by list order.
 # Earlier entries are considered higher quality and are inserted first.
@@ -111,28 +110,29 @@ LABEL_COL_CANDIDATES = (
   "value",
 )
 
-def _loadcsv_dataset(path: Path, split_col: str = "split",) -> Dict[str, object]:
 
-    # Load all csvs 
-    # Assumes that the data has already been split into train/val/test
-    # Creates a CSVSdataset wrapper to provide column names and iterable rows
-    # Returns train/val/tet spilt as a dict
+def _loadcsv_dataset(
+  path: Path,
+  split_col: str = "split",
+) -> Dict[str, object]:
 
-    dfs = [pd.read_csv(f) for f in path.glob("*.csv")]
-    if not dfs:
-      raise ValueError(f"No CSV files found in {path}")
-    df = pd.concat(dfs, ignore_index=True)
+  # Load all csvs
+  # Assumes that the data has already been split into train/val/test
+  # Creates a CSVSdataset wrapper to provide column names and iterable rows
+  # Returns train/val/tet spilt as a dict
 
-    train_df = df[df[split_col] == "train"].reset_index(drop=True)
-    val_df = df[df[split_col] == "validation"].reset_index(drop=True)
-    test_df = df[df[split_col] == "test"].reset_index(drop=True)
+  dfs = [pd.read_csv(f) for f in path.glob("*.csv")]
+  if not dfs:
+    raise ValueError(f"No CSV files found in {path}")
+  df = pd.concat(dfs, ignore_index=True)
 
-    ds_dict = {
-        "train": CSVDataset(train_df),
-        "validation": CSVDataset(val_df),
-        "test": CSVDataset(test_df)
-    }
-    return ds_dict
+  train_df = df[df[split_col] == "train"].reset_index(drop=True)
+  val_df = df[df[split_col] == "validation"].reset_index(drop=True)
+  test_df = df[df[split_col] == "test"].reset_index(drop=True)
+
+  ds_dict = {"train": CSVDataset(train_df), "validation": CSVDataset(val_df), "test": CSVDataset(test_df)}
+  return ds_dict
+
 
 def _resolve_column(column_names: List[str], preferred: Optional[str], candidates: Iterable[str], kind: str, task_name: str) -> str:
   # Pick a preferred column, else the first matching candidate.
@@ -235,8 +235,7 @@ def _insert_task(con: duckdb.DuckDBPyConnection, task: TaskSpec):
   ).fetchone()
   if row != (task.dtype, task.head_type, task.num_classes, task.loss):
     raise ValueError(
-      f"Inconsistent metadata for task '{task.task_name}'. "
-      f"Existing={row}, incoming={(task.dtype, task.head_type, task.num_classes, task.loss)}"
+      f"Inconsistent metadata for task '{task.task_name}'. Existing={row}, incoming={(task.dtype, task.head_type, task.num_classes, task.loss)}"
     )
 
 
@@ -257,13 +256,18 @@ def _source_name(task: TaskSpec, split: str) -> str:
   return base
 
 
-def _insert_task_samples(con: duckdb.DuckDBPyConnection, task: TaskSpec, cache_dir: Optional[str], proteingym: Optional[str],):
+def _insert_task_samples(
+  con: duckdb.DuckDBPyConnection,
+  task: TaskSpec,
+  cache_dir: Optional[str],
+  proteingym: Optional[str],
+):
   # Load a task dataset and insert normalized sample rows.
   # We call `load_dataset` without split=... so we can iterate all available splits.
   if "proteingym" in task.dataset.lower():
-      ds_dict = _loadcsv_dataset(Path(proteingym))
+    ds_dict = _loadcsv_dataset(Path(proteingym))
   else:
-      ds_dict = load_dataset(task.dataset, task.subset, cache_dir=cache_dir)
+    ds_dict = load_dataset(task.dataset, task.subset, cache_dir=cache_dir)
   selected_splits = _iter_selected_splits(task, ds_dict)
 
   # Inserted count reflects rows accepted by DB uniqueness constraints.
@@ -334,10 +338,7 @@ def _insert_task_samples(con: duckdb.DuckDBPyConnection, task: TaskSpec, cache_d
         else:
           total_inserted += 1
 
-  print(
-    f"Task={task.task_name} inserted={total_inserted} "
-    f"skipped_missing={total_skipped} skipped_conflict={total_conflicts}"
-  )
+  print(f"Task={task.task_name} inserted={total_inserted} skipped_missing={total_skipped} skipped_conflict={total_conflicts}")
 
 
 def aggregate(tasks: List[TaskSpec], out_db: Path, cache_dir: Optional[str], proteingym: Optional[str]):
@@ -370,7 +371,7 @@ def _parse_args():
 def main():
   # Entrypoint for CLI usage.
   args = _parse_args()
-  aggregate(TASKS, Path(args.out_db), args.cache_dir,args.proteingym)
+  aggregate(TASKS, Path(args.out_db), args.cache_dir, args.proteingym)
 
 
 if __name__ == "__main__":
