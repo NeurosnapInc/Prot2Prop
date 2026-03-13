@@ -1,0 +1,4 @@
+DMS_filename,DMS_id,first_author,year,selection_type,origin_coarse_bucket,property_tier,task_name,mutation_type
+ERBB2_HUMAN_Elazar_2016.csv,ERBB2_HUMAN_Elazar_2016,Elazar,2016,TOXCAT-Beta-lactamase (TbL) screen,Expression,primary,membrane_topology,substitutions
+GLPA_HUMAN_Elazar_2016.csv,GLPA_HUMAN_Elazar_2016,Elazar,2016,TOXCAT-Beta-lactamase (TbL) screen,Expression,primary,membrane_topology,substitutions
+LYAM1_HUMAN_Elazar_2016.csv,LYAM1_HUMAN_Elazar_2016,Elazar,2016,TOXCAT-Beta-lactamase (TbL) screen,Expression,primary,membrane_topology,substitutions
