@@ -1,0 +1,3 @@
+DMS_filename,DMS_id,first_author,year,selection_type,origin_coarse_bucket,property_tier,task_name,mutation_type
+A4_HUMAN_Seuma_2022_indels.csv,A4_HUMAN_Seuma_2022_indels,Seuma,2022,survival assessment assay,Stability,primary,aggregation_propensity,indels
+A4_HUMAN_Seuma_2022.csv,A4_HUMAN_Seuma_2022,Seuma,2022,survival assessment assay,Stability,primary,aggregation_propensity,substitutions
