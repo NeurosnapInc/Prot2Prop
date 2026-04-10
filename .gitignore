@@ -2,4 +2,6 @@
 *.egg-info
 data/
 __pycache__
+
 DMS_ProteinGym_substitutions/
+DMS_ProteinGym_indels/
