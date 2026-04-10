@@ -53,6 +53,8 @@ VERSION="v1.3"
 FILENAME="DMS_ProteinGym_substitutions.zip"
 curl -o ${FILENAME} https://marks.hms.harvard.edu/proteingym/ProteinGym_${VERSION}/${FILENAME}
 unzip ${FILENAME} && rm ${FILENAME}
+
+# TODO: Add Indels next: https://marks.hms.harvard.edu/proteingym/ProteinGym_v1.3/DMS_ProteinGym_indels.zip
 ```
 
 ## Results (WIP)
