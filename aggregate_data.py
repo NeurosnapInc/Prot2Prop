@@ -1,5 +1,6 @@
 """
 Aggregate protein-property datasets into a DuckDB database.
+Inspect Results: duckdb -ui data/aggregated/aggregated.duckdb
 
 Tables:
 - samples(sequence, source, task_name, label)
