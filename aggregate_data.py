@@ -201,6 +201,7 @@ def _manifest_path(task: TaskSpec) -> Path:
 def _load_proteingym_dataset(
   task: TaskSpec,
   path: Path,
+  indels_path: Optional[Path],
 ) -> Dict[str, object]:
   manifest_path = _manifest_path(task)
   if not manifest_path.exists():
@@ -216,8 +217,16 @@ def _load_proteingym_dataset(
   for filename in manifest_df["DMS_filename"].astype(str):
     csv_path = path / filename
     if not csv_path.exists():
-      missing_files.append(filename)
-      continue
+      if indels_path is not None:
+        fallback_path = indels_path / filename
+        if fallback_path.exists():
+          csv_path = fallback_path
+        else:
+          missing_files.append(filename)
+          continue
+      else:
+        missing_files.append(filename)
+        continue
     datasets[filename] = CSVDataset(pd.read_csv(csv_path))
 
   if not datasets:
@@ -358,7 +367,11 @@ def _insert_task_samples(
   if "proteingym" in task.dataset.lower():
     if proteingym is None:
       raise ValueError("ProteinGym path is required for ProteinGym tasks")
-    ds_dict = _load_proteingym_dataset(task, Path(proteingym))
+    proteingym_path = Path(proteingym)
+    indels_path = proteingym_path.parent / "DMS_ProteinGym_indels"
+    if indels_path == proteingym_path or not indels_path.exists():
+      indels_path = None
+    ds_dict = _load_proteingym_dataset(task, proteingym_path, indels_path)
   else:
     ds_dict = load_dataset(task.dataset, task.subset, cache_dir=cache_dir)
 
