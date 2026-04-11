@@ -38,8 +38,6 @@ class TaskSpec:
       `None` for regression tasks.
     loss: Preferred loss name for downstream training metadata (for example
       `bce` or `mse`).
-    splits: Split names to read, in priority order. Defaults to
-      `("train", "validation", "test")`.
     sequence_col: Optional explicit sequence column name. If `None`, the script
       infers from known sequence column candidates.
     label_col: Optional explicit label column name. If `None`, the script
@@ -53,7 +51,6 @@ class TaskSpec:
   head_type: str
   num_classes: Optional[int]
   loss: str
-  splits: Iterable[str] = ("train", "validation", "test")
   sequence_col: Optional[str] = None
   label_col: Optional[str] = None
   subset: Optional[str] = None
@@ -342,21 +339,11 @@ def _insert_task(con: duckdb.DuckDBPyConnection, task: TaskSpec):
     )
 
 
-def _iter_selected_splits(task: TaskSpec, ds_dict: Dict[str, Any]) -> List[str]:
-  # Keep configured split order while selecting only splits present in the dataset.
-  # If none of the expected split names exist, process every split provided.
-  available = set(ds_dict.keys())
-  selected = [split for split in task.splits if split in available]
-  if selected:
-    return selected
-  return list(ds_dict.keys())
-
-
-def _source_name(task: TaskSpec, split: str) -> str:
-  # Keep source as dataset/subset only (no split stored in DB).
+def _source_name(task: TaskSpec, dataset_key: str) -> str:
+  # Keep source as dataset/subset only for HF datasets.
   base = task.dataset if task.subset is None else f"{task.dataset}:{task.subset}"
   if "proteingym" in task.dataset.lower():
-    return f"{base}:{Path(split).stem}"
+    return f"{base}:{Path(dataset_key).stem}"
   return base
 
 
@@ -367,26 +354,24 @@ def _insert_task_samples(
   proteingym: Optional[str],
 ):
   # Load a task dataset and insert normalized sample rows.
-  # We call `load_dataset` without split=... so we can iterate all available splits.
+  # We load the full dataset object so aggregation can process every partition returned.
   if "proteingym" in task.dataset.lower():
     if proteingym is None:
       raise ValueError("ProteinGym path is required for ProteinGym tasks")
     ds_dict = _load_proteingym_dataset(task, Path(proteingym))
   else:
     ds_dict = load_dataset(task.dataset, task.subset, cache_dir=cache_dir)
-  selected_splits = _iter_selected_splits(task, ds_dict)
 
   # Inserted count reflects rows accepted by DB uniqueness constraints.
   total_inserted = 0
   total_skipped = 0
   total_conflicts = 0
 
-  for split in selected_splits:
-    ds = ds_dict[split]
+  for dataset_key, ds in ds_dict.items():
     # Resolve dataset-specific schema to our canonical sequence/label fields.
     sequence_col = _resolve_column(ds.column_names, task.sequence_col, SEQ_COL_CANDIDATES, "sequence", task.task_name)
     label_col = _resolve_column(ds.column_names, task.label_col, LABEL_COL_CANDIDATES, "label", task.task_name)
-    source = _source_name(task, split)
+    source = _source_name(task, dataset_key)
 
     rows = []
     for ex in ds:
