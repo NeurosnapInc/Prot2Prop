@@ -362,10 +362,10 @@ def _insert_task_samples(
   else:
     ds_dict = load_dataset(task.dataset, task.subset, cache_dir=cache_dir)
 
-  # Inserted count reflects rows accepted by DB uniqueness constraints.
-  total_inserted = 0
   total_skipped = 0
-  total_conflicts = 0
+  total_duplicates = 0
+  seen_sequences = set()
+  rows = []
 
   for dataset_key, ds in ds_dict.items():
     # Resolve dataset-specific schema to our canonical sequence/label fields.
@@ -373,7 +373,6 @@ def _insert_task_samples(
     label_col = _resolve_column(ds.column_names, task.label_col, LABEL_COL_CANDIDATES, "label", task.task_name)
     source = _source_name(task, dataset_key)
 
-    rows = []
     for ex in ds:
       seq = ex.get(sequence_col)
       if seq is None:
@@ -390,46 +389,30 @@ def _insert_task_samples(
         total_skipped += 1
         continue
 
+      if seq in seen_sequences:
+        total_duplicates += 1
+        continue
+
+      seen_sequences.add(seq)
+
       # Store labels as float regardless of task type.
       rows.append((seq, source, task.task_name, lbl))
 
-      if len(rows) >= 5000:
-        # First dataset wins: conflicts are skipped via DO NOTHING.
-        # Row-wise RETURNING lets us count accepted vs conflicted rows.
-        for row in rows:
-          inserted = con.execute(
-            """
-            INSERT INTO samples(sequence, source, task_name, label)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(sequence, task_name) DO NOTHING
-            RETURNING 1
-            """,
-            row,
-          ).fetchone()
-          if inserted is None:
-            total_conflicts += 1
-          else:
-            total_inserted += 1
-        rows = []
+  if rows:
+    task_df = pd.DataFrame(rows, columns=["sequence", "source", "task_name", "label"])
+    con.register("task_rows", task_df)
+    try:
+      con.execute(
+        """
+        INSERT INTO samples(sequence, source, task_name, label)
+        SELECT sequence, source, task_name, label
+        FROM task_rows
+        """
+      )
+    finally:
+      con.unregister("task_rows")
 
-    if rows:
-      # Flush remaining rows after the final partial batch.
-      for row in rows:
-        inserted = con.execute(
-          """
-          INSERT INTO samples(sequence, source, task_name, label)
-          VALUES (?, ?, ?, ?)
-          ON CONFLICT(sequence, task_name) DO NOTHING
-          RETURNING 1
-          """,
-          row,
-        ).fetchone()
-        if inserted is None:
-          total_conflicts += 1
-        else:
-          total_inserted += 1
-
-  print(f"Task={task.task_name} inserted={total_inserted} skipped_missing={total_skipped} skipped_conflict={total_conflicts}")
+  print(f"Task={task.task_name} inserted={len(rows)} skipped_missing={total_skipped} skipped_duplicate={total_duplicates}")
 
 
 def aggregate(tasks: List[TaskSpec], out_db: Path, cache_dir: Optional[str], proteingym: Optional[str]):
