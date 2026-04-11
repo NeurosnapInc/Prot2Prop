@@ -194,28 +194,47 @@ LABEL_COL_CANDIDATES = (
   "value",
 )
 
+PROTEINGYM_MANIFEST_DIR = Path(__file__).resolve().parent / "proteingym_manifests"
 
-def _loadcsv_dataset(
+
+def _manifest_path(task: TaskSpec) -> Path:
+  return PROTEINGYM_MANIFEST_DIR / f"{task.task_name}.csv"
+
+
+def _load_proteingym_dataset(
+  task: TaskSpec,
   path: Path,
-  split_col: str = "split",
 ) -> Dict[str, object]:
+  manifest_path = _manifest_path(task)
+  if not manifest_path.exists():
+    raise ValueError(f"ProteinGym manifest not found for task '{task.task_name}': {manifest_path}")
 
-  # Load all csvs
-  # Assumes that the data has already been split into train/val/test
-  # Creates a CSVSdataset wrapper to provide column names and iterable rows
-  # Returns train/val/tet spilt as a dict
+  manifest_df = pd.read_csv(manifest_path)
+  if "DMS_filename" not in manifest_df.columns:
+    raise KeyError(f"Manifest '{manifest_path}' is missing required column 'DMS_filename'")
 
-  dfs = [pd.read_csv(f) for f in path.glob("*.csv")]
-  if not dfs:
-    raise ValueError(f"No CSV files found in {path}")
-  df = pd.concat(dfs, ignore_index=True)
+  datasets: Dict[str, object] = {}
+  missing_files: List[str] = []
 
-  train_df = df[df[split_col] == "train"].reset_index(drop=True)
-  val_df = df[df[split_col] == "validation"].reset_index(drop=True)
-  test_df = df[df[split_col] == "test"].reset_index(drop=True)
+  for filename in manifest_df["DMS_filename"].astype(str):
+    csv_path = path / filename
+    if not csv_path.exists():
+      missing_files.append(filename)
+      continue
+    datasets[filename] = CSVDataset(pd.read_csv(csv_path))
 
-  ds_dict = {"train": CSVDataset(train_df), "validation": CSVDataset(val_df), "test": CSVDataset(test_df)}
-  return ds_dict
+  if not datasets:
+    raise ValueError(
+      f"No ProteinGym CSV files matched manifest '{manifest_path}' under {path}"
+    )
+
+  if missing_files:
+    print(
+      f"Task={task.task_name} manifest_missing_files={len(missing_files)} "
+      f"(not found under {path}, likely absent from this ProteinGym subset)"
+    )
+
+  return datasets
 
 
 def _resolve_column(column_names: List[str], preferred: Optional[str], candidates: Iterable[str], kind: str, task_name: str) -> str:
@@ -335,8 +354,9 @@ def _iter_selected_splits(task: TaskSpec, ds_dict: Dict[str, Any]) -> List[str]:
 
 def _source_name(task: TaskSpec, split: str) -> str:
   # Keep source as dataset/subset only (no split stored in DB).
-  _ = split
   base = task.dataset if task.subset is None else f"{task.dataset}:{task.subset}"
+  if "proteingym" in task.dataset.lower():
+    return f"{base}:{Path(split).stem}"
   return base
 
 
@@ -349,7 +369,9 @@ def _insert_task_samples(
   # Load a task dataset and insert normalized sample rows.
   # We call `load_dataset` without split=... so we can iterate all available splits.
   if "proteingym" in task.dataset.lower():
-    ds_dict = _loadcsv_dataset(Path(proteingym))
+    if proteingym is None:
+      raise ValueError("ProteinGym path is required for ProteinGym tasks")
+    ds_dict = _load_proteingym_dataset(task, Path(proteingym))
   else:
     ds_dict = load_dataset(task.dataset, task.subset, cache_dir=cache_dir)
   selected_splits = _iter_selected_splits(task, ds_dict)
