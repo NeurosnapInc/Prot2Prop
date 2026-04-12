@@ -17,13 +17,33 @@ from transformers import T5EncoderModel, get_linear_schedule_with_warmup
 
 from config import MODEL_NAME, TASK_NAME, TOKENIZED_DATA_PATH
 
+
+### Config & hyperparameters
+# Training batch size. Increase until GPU memory or throughput stops improving.
 BATCH_SIZE = 32
+# Optimizer learning rate for the adapter and task head.
 LR = 1e-4
+# Maximum number of training epochs before early stopping cuts the run short.
 EPOCHS = 10
+# Adapter bottleneck width. Higher values add capacity and compute.
+ADAPTER_DIM = 64
+# Shared dropout used by the adapter and attention pooling head.
+DROPOUT = 0.1
+# Hidden width inside the attention pooling projection.
+ATTN_POOL_HIDDEN = 256
+# AdamW weight decay for trainable parameters.
+WEIGHT_DECAY = 1e-2
+# Warmup ratio for the linear LR scheduler.
+WARMUP_RATIO = 0.05
+# Early stopping patience measured in epochs without improvement.
+PATIENCE = 3
+# Seed used when shuffling bucketed batches each epoch.
+BATCH_SAMPLER_SEED = 42
+
+### Constants
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 AMP_ENABLED = DEVICE.type == "cuda"
 COMPILE_MODEL = DEVICE.type == "cuda"
-BATCH_SAMPLER_SEED = 42
 
 
 class TokenizedDataset(Dataset):
@@ -65,7 +85,7 @@ class LengthBucketBatchSampler(Sampler):
 
 
 class Adapter(nn.Module):
-  def __init__(self, input_dim, adapter_dim=64, dropout_prob=0.1):
+  def __init__(self, input_dim, adapter_dim=ADAPTER_DIM, dropout_prob=DROPOUT):
     super().__init__()
     self.norm = nn.LayerNorm(input_dim)
     self.down_project = nn.Linear(input_dim, adapter_dim)
@@ -87,7 +107,7 @@ class Adapter(nn.Module):
 
 
 class AttnPool(nn.Module):
-  def __init__(self, d_model, hidden=256, dropout=0.1):
+  def __init__(self, d_model, hidden=ATTN_POOL_HIDDEN, dropout=DROPOUT):
     super().__init__()
     self.proj = nn.Sequential(
       nn.Linear(d_model, hidden),
@@ -105,13 +125,13 @@ class AttnPool(nn.Module):
 
 
 class TaskAdapterModel(nn.Module):
-  def __init__(self, base_model, embed_dim, output_dim, adapter_dim=64, dropout=0.1):
+  def __init__(self, base_model, embed_dim, output_dim, adapter_dim=ADAPTER_DIM, dropout=DROPOUT):
     super().__init__()
     self.base = base_model
     for p in self.base.parameters():
       p.requires_grad = False
     self.adapter = Adapter(embed_dim, adapter_dim, dropout_prob=dropout)
-    self.pool = AttnPool(embed_dim, hidden=256, dropout=dropout)
+    self.pool = AttnPool(embed_dim, hidden=ATTN_POOL_HIDDEN, dropout=dropout)
     self.head = nn.Sequential(
       nn.LayerNorm(embed_dim),
       nn.Linear(embed_dim, output_dim),
@@ -217,7 +237,7 @@ val_loader = DataLoader(
 print("Initializing model")
 embed_dim = base_model.config.d_model
 output_dim = _output_dim_from_meta(meta, splits["train"]["labels"])
-model = TaskAdapterModel(base_model, embed_dim, output_dim=output_dim, adapter_dim=64).to(DEVICE)
+model = TaskAdapterModel(base_model, embed_dim, output_dim=output_dim, adapter_dim=ADAPTER_DIM, dropout=DROPOUT).to(DEVICE)
 
 if COMPILE_MODEL and hasattr(torch, "compile"):
   print("Compiling model")
@@ -227,16 +247,16 @@ if COMPILE_MODEL and hasattr(torch, "compile"):
     print(f"torch.compile unavailable, continuing without compile: {exc}")
 
 criterion = _build_loss(meta, splits["train"]["labels"].view(-1).tolist())
-optimizer = torch.optim.AdamW([{"params": model.adapter.parameters()}, {"params": model.head.parameters()}], lr=LR, weight_decay=1e-2)
+optimizer = torch.optim.AdamW([{"params": model.adapter.parameters()}, {"params": model.head.parameters()}], lr=LR, weight_decay=WEIGHT_DECAY)
 trainable_params = list(model.adapter.parameters()) + list(model.head.parameters())
 
 num_training_steps = len(train_loader) * EPOCHS
-num_warmup_steps = int(0.05 * num_training_steps)
+num_warmup_steps = int(WARMUP_RATIO * num_training_steps)
 scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps)
 
 is_regression = meta["dtype"] == "float"
 best_metric = float("inf") if is_regression else -1.0
-patience = 3
+patience = PATIENCE
 stale = 0
 best_state = None
 
@@ -309,7 +329,7 @@ torch.save(
     "config": {
       "embed_dim": embed_dim,
       "output_dim": output_dim,
-      "adapter_dim": 64,
+      "adapter_dim": ADAPTER_DIM,
       "model_name": MODEL_NAME,
       "tokenized_data_path": str(TOKENIZED_DATA_PATH),
       "task_name": TASK_NAME,
