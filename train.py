@@ -166,8 +166,8 @@ val_ds = TensorDataset(
   splits["validation"]["labels"],
 )
 
-train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True)
-val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False)
+train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True)
+val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, pin_memory=True)
 
 print("Initializing model")
 embed_dim = base_model.config.d_model
