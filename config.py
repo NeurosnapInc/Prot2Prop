@@ -11,4 +11,5 @@ TEST_FRACTION = 0.1
 
 MAX_LENGTH = 1024 * 2
 
-TOKENIZED_DATA_PATH = Path("data/tokenized") / f"{TASK_NAME}_prostt5_tokens.pt"
+TOKENIZED_DATA_DIR = Path("data/tokenized")
+TOKENIZED_DATA_PATH = TOKENIZED_DATA_DIR / f"{TASK_NAME}_prostt5_tokens.pt"
