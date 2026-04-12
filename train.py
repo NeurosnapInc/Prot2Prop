@@ -279,7 +279,7 @@ for epoch in range(EPOCHS):
 
   metric_name, metric_value, report = _metric_from_preds(all_labels, all_preds, meta["dtype"])
   report_parts = [f"{k.upper()}: {v:.4f}" for k, v in report.items()]
-  print(f"Train Loss: {total_loss / len(train_loader):.4f} | " + " ".join(report_parts))
+  print(f"Train Loss: {total_loss / len(train_loader):.4f} | Val " + " ".join(report_parts))
 
   improved = metric_value < best_metric if is_regression else metric_value > best_metric
   if improved:
