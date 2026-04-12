@@ -39,7 +39,7 @@ Homepage = "https://github.com/NeurosnapInc/TODO"
 Issues = "https://github.com/NeurosnapInc/TODO/issues"
 
 [tool.setuptools]
-py-modules = ["inference", "train"]
+py-modules = ["aggregate_data", "config", "inference", "tokenize_data", "train"]
 
 [tool.ruff]
 line-length = 150
