@@ -17,7 +17,7 @@ from transformers import T5EncoderModel, get_linear_schedule_with_warmup
 
 from config import MODEL_NAME, TASK_NAME, TOKENIZED_DATA_PATH
 
-BATCH_SIZE = 8
+BATCH_SIZE = 32
 LR = 1e-4
 EPOCHS = 10
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
