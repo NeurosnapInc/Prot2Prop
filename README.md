@@ -60,6 +60,20 @@ unzip DMS_ProteinGym_substitutions.zip
 rm DMS_ProteinGym_substitutions.zip
 ```
 
+## Taining
+1. Once the above data downloads have been complete, run the dta aggregation pipeline.
+```sh
+python aggregate_data.py
+```
+2. Tokenize the aggregated data so that it is ready for training
+```sh
+python tokenize_data.py
+```
+3. Train the models, currently suggest using L40S GPU(s)
+```sh
+python train.py
+```
+
 ## Results (WIP)
 ### Crude Solubility Results for Reference
 ```sh
