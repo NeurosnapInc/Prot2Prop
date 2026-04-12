@@ -182,7 +182,7 @@ if COMPILE_MODEL and hasattr(torch, "compile"):
     print(f"torch.compile unavailable, continuing without compile: {exc}")
 
 criterion = _build_loss(meta, splits["train"]["labels"].view(-1).tolist())
-optimizer = torch.optim.AdamW([{"params": model.adapter.parameters()}, {"params": model.head.parameters()}], lr=LR, weight_decay=1e-2)
+optimizer = torch.optim.AdamW([{"params": model.adapter.parameters()}, {"params": model.head.parameters()}], lr=LR, weight_decay=1e-2, fused=True)
 trainable_params = list(model.adapter.parameters()) + list(model.head.parameters())
 
 num_training_steps = len(train_loader) * EPOCHS
