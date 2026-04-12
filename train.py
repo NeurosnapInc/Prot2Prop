@@ -20,6 +20,8 @@ BATCH_SIZE = 8
 LR = 1e-4
 EPOCHS = 10
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+AMP_ENABLED = DEVICE.type == "cuda"
+COMPILE_MODEL = DEVICE.type == "cuda"
 
 
 class Adapter(nn.Module):
@@ -81,12 +83,8 @@ class TaskAdapterModel(nn.Module):
     if attention_mask.dtype not in (torch.long, torch.int64, torch.bool):
       attention_mask = attention_mask.long()
 
-    autocast_enabled = input_ids.is_cuda
-    with torch.amp.autocast("cuda", enabled=autocast_enabled):
-      out = self.base(input_ids=input_ids, attention_mask=attention_mask)
-      token_repr = out.last_hidden_state
-
-    token_repr = token_repr.float()
+    out = self.base(input_ids=input_ids, attention_mask=attention_mask)
+    token_repr = out.last_hidden_state
     adapted = token_repr + self.adapter(token_repr)
     pooled = self.pool(adapted, attention_mask)
     return self.head(pooled)
@@ -155,7 +153,7 @@ print(
 
 base_model = T5EncoderModel.from_pretrained(MODEL_NAME).to(DEVICE)
 if DEVICE.type == "cuda":
-  base_model.half()
+  base_model.bfloat16()
 
 train_ds = TensorDataset(
   splits["train"]["input_ids"],
@@ -175,10 +173,17 @@ print("Initializing model")
 embed_dim = base_model.config.d_model
 output_dim = _output_dim_from_meta(meta, splits["train"]["labels"])
 model = TaskAdapterModel(base_model, embed_dim, output_dim=output_dim, adapter_dim=64).to(DEVICE)
-model.float()
+
+if COMPILE_MODEL and hasattr(torch, "compile"):
+  print("Compiling model")
+  try:
+    model = torch.compile(model)
+  except Exception as exc:
+    print(f"torch.compile unavailable, continuing without compile: {exc}")
 
 criterion = _build_loss(meta, splits["train"]["labels"].view(-1).tolist())
 optimizer = torch.optim.AdamW([{"params": model.adapter.parameters()}, {"params": model.head.parameters()}], lr=LR, weight_decay=1e-2)
+trainable_params = list(model.adapter.parameters()) + list(model.head.parameters())
 
 num_training_steps = len(train_loader) * EPOCHS
 num_warmup_steps = int(0.05 * num_training_steps)
@@ -199,12 +204,13 @@ for epoch in range(EPOCHS):
     attn_mask = attn_mask.to(DEVICE)
     labels = labels.to(DEVICE)
 
-    preds = model(input_ids, attn_mask)
-    loss = criterion(preds, labels)
+    with torch.amp.autocast("cuda", dtype=torch.bfloat16, enabled=AMP_ENABLED):
+      preds = model(input_ids, attn_mask)
+      loss = criterion(preds, labels)
 
-    optimizer.zero_grad()
+    optimizer.zero_grad(set_to_none=True)
     loss.backward()
-    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+    torch.nn.utils.clip_grad_norm_(trainable_params, 1.0)
     optimizer.step()
     scheduler.step()
     total_loss += loss.item()
@@ -216,11 +222,12 @@ for epoch in range(EPOCHS):
       input_ids = input_ids.to(DEVICE)
       attn_mask = attn_mask.to(DEVICE)
       labels = labels.to(DEVICE)
-      outputs = model(input_ids, attn_mask)
+      with torch.amp.autocast("cuda", dtype=torch.bfloat16, enabled=AMP_ENABLED):
+        outputs = model(input_ids, attn_mask)
 
       if is_regression:
-        all_preds.extend(outputs.squeeze(-1).cpu().numpy().tolist())
-        all_labels.extend(labels.squeeze(-1).cpu().numpy().tolist())
+        all_preds.extend(outputs.squeeze(-1).float().cpu().numpy().tolist())
+        all_labels.extend(labels.squeeze(-1).float().cpu().numpy().tolist())
       else:
         all_preds.extend(outputs.argmax(dim=1).cpu().numpy().tolist())
         all_labels.extend(labels.cpu().numpy().tolist())
