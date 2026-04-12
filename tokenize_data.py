@@ -1,6 +1,6 @@
 """
 Pre-tokenize every task from the aggregated DuckDB into fixed train/validation/test
-tensor splits for faster training.
+splits for faster training.
 """
 
 import random
@@ -110,33 +110,40 @@ try:
 
     tokenized_splits = {}
     for split_name, split_rows in splits.items():
-      input_id_batches = []
-      attention_mask_batches = []
-      label_batches = []
+      input_ids = []
+      labels = []
+      lengths = []
 
       for start in range(0, len(split_rows), TOKENIZE_BATCH_SIZE):
         batch = split_rows[start:start + TOKENIZE_BATCH_SIZE]
         sequences = [_preprocess_sequence(item["sequence"]) for item in batch]
         encoded = tokenizer(
           sequences,
-          padding="max_length",
+          padding=False,
           truncation=True,
           max_length=MAX_LENGTH,
-          return_tensors="pt",
+          return_attention_mask=False,
         )
 
-        input_id_batches.append(encoded["input_ids"])
-        attention_mask_batches.append(encoded["attention_mask"])
+        for ids, item in zip(encoded["input_ids"], batch):
+          ids_tensor = torch.tensor(ids, dtype=torch.long)
+          input_ids.append(ids_tensor)
+          lengths.append(len(ids))
+          if dtype in ("bool", "int"):
+            labels.append(int(item["label"]))
+          else:
+            labels.append(float(item["label"]))
 
-        if dtype in ("bool", "int"):
-          label_batches.append(torch.tensor([item["label"] for item in batch], dtype=torch.long))
-        else:
-          label_batches.append(torch.tensor([item["label"] for item in batch], dtype=torch.float).unsqueeze(-1))
+      label_dtype = torch.long if dtype in ("bool", "int") else torch.float
+      labels_tensor = torch.tensor(labels, dtype=label_dtype)
+      if dtype == "float":
+        labels_tensor = labels_tensor.unsqueeze(-1)
 
       tokenized_splits[split_name] = {
-        "input_ids": torch.cat(input_id_batches, dim=0),
-        "attention_mask": torch.cat(attention_mask_batches, dim=0),
-        "labels": torch.cat(label_batches, dim=0),
+        # Keep per-sample token ids variable-length; train.py pads only what each batch needs.
+        "input_ids": input_ids,
+        "labels": labels_tensor,
+        "lengths": torch.tensor(lengths, dtype=torch.long),
       }
 
     out_path = TOKENIZED_DATA_DIR / f"{task_name}_prostt5_tokens.pt"
@@ -152,6 +159,7 @@ try:
           "val_fraction": VAL_FRACTION,
           "test_fraction": TEST_FRACTION,
           "max_length": MAX_LENGTH,
+          "pad_token_id": tokenizer.pad_token_id,
         },
         "splits": tokenized_splits,
       },

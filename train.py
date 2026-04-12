@@ -4,13 +4,14 @@ and task head, backed by pre-tokenized train/validation/test tensors.
 """
 
 import math
+import random
 from collections import Counter
 from typing import Dict, Tuple
 
 import torch
 import torch.nn as nn
 from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, mean_squared_error
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, Dataset, Sampler
 from tqdm import tqdm
 from transformers import T5EncoderModel, get_linear_schedule_with_warmup
 
@@ -22,6 +23,45 @@ EPOCHS = 10
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 AMP_ENABLED = DEVICE.type == "cuda"
 COMPILE_MODEL = DEVICE.type == "cuda"
+BATCH_SAMPLER_SEED = 42
+
+
+class TokenizedDataset(Dataset):
+  def __init__(self, split_payload):
+    self.input_ids = split_payload["input_ids"]
+    self.labels = split_payload["labels"]
+    self.lengths = split_payload["lengths"]
+
+  def __len__(self):
+    return len(self.input_ids)
+
+  def __getitem__(self, idx):
+    return self.input_ids[idx], self.labels[idx], int(self.lengths[idx])
+
+
+class LengthBucketBatchSampler(Sampler):
+  def __init__(self, lengths, batch_size, shuffle, seed):
+    self.lengths = [int(x) for x in lengths]
+    self.batch_size = batch_size
+    self.shuffle = shuffle
+    self.seed = seed
+    self.epoch = 0
+
+  def __iter__(self):
+    indices = list(range(len(self.lengths)))
+    if self.shuffle:
+      rng = random.Random(self.seed + self.epoch)
+      rng.shuffle(indices)
+      self.epoch += 1
+    # Sort inside the epoch so each batch contains similarly sized sequences.
+    indices.sort(key=self.lengths.__getitem__)
+    batches = [indices[i : i + self.batch_size] for i in range(0, len(indices), self.batch_size)]
+    if self.shuffle:
+      rng.shuffle(batches)
+    return iter(batches)
+
+  def __len__(self):
+    return (len(self.lengths) + self.batch_size - 1) // self.batch_size
 
 
 class Adapter(nn.Module):
@@ -135,6 +175,15 @@ def _output_dim_from_meta(meta: Dict[str, str], train_labels: torch.Tensor) -> i
   return max(labels) + 1
 
 
+def _collate_batch(batch, pad_token_id):
+  input_ids, labels, _ = zip(*batch)
+  # Pad only to the longest sequence in this batch.
+  padded_ids = nn.utils.rnn.pad_sequence(input_ids, batch_first=True, padding_value=pad_token_id)
+  attention_mask = padded_ids.ne(pad_token_id).long()
+  labels = torch.stack(labels)
+  return padded_ids, attention_mask, labels
+
+
 print("Loading tokenized splits")
 if not TOKENIZED_DATA_PATH.exists():
   raise FileNotFoundError(f"Tokenized data not found at {TOKENIZED_DATA_PATH}. Run tokenize_data.py first.")
@@ -142,32 +191,28 @@ if not TOKENIZED_DATA_PATH.exists():
 payload = torch.load(TOKENIZED_DATA_PATH, map_location="cpu")
 meta = payload["meta"]
 splits = payload["splits"]
+pad_token_id = payload["config"]["pad_token_id"]
 
 print(f"Task={meta['task_name']} dtype={meta['dtype']} head={meta['head_type']} loss={meta['loss']}")
-print(
-  "Rows: "
-  f"train={splits['train']['labels'].shape[0]} "
-  f"val={splits['validation']['labels'].shape[0]} "
-  f"test={splits['test']['labels'].shape[0]}"
-)
+print(f"Rows: train={splits['train']['labels'].shape[0]} val={splits['validation']['labels'].shape[0]} test={splits['test']['labels'].shape[0]}")
 
 base_model = T5EncoderModel.from_pretrained(MODEL_NAME).to(DEVICE)
 if DEVICE.type == "cuda":
   base_model.bfloat16()
 
-train_ds = TensorDataset(
-  splits["train"]["input_ids"],
-  splits["train"]["attention_mask"],
-  splits["train"]["labels"],
-)
-val_ds = TensorDataset(
-  splits["validation"]["input_ids"],
-  splits["validation"]["attention_mask"],
-  splits["validation"]["labels"],
-)
+train_ds = TokenizedDataset(splits["train"])
+val_ds = TokenizedDataset(splits["validation"])
 
-train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True)
-val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, pin_memory=True)
+train_loader = DataLoader(
+  train_ds,
+  batch_sampler=LengthBucketBatchSampler(splits["train"]["lengths"], BATCH_SIZE, shuffle=True, seed=BATCH_SAMPLER_SEED),
+  collate_fn=lambda batch: _collate_batch(batch, pad_token_id),
+)
+val_loader = DataLoader(
+  val_ds,
+  batch_sampler=LengthBucketBatchSampler(splits["validation"]["lengths"], BATCH_SIZE, shuffle=False, seed=BATCH_SAMPLER_SEED),
+  collate_fn=lambda batch: _collate_batch(batch, pad_token_id),
+)
 
 print("Initializing model")
 embed_dim = base_model.config.d_model
@@ -182,7 +227,7 @@ if COMPILE_MODEL and hasattr(torch, "compile"):
     print(f"torch.compile unavailable, continuing without compile: {exc}")
 
 criterion = _build_loss(meta, splits["train"]["labels"].view(-1).tolist())
-optimizer = torch.optim.AdamW([{"params": model.adapter.parameters()}, {"params": model.head.parameters()}], lr=LR, weight_decay=1e-2, fused=True)
+optimizer = torch.optim.AdamW([{"params": model.adapter.parameters()}, {"params": model.head.parameters()}], lr=LR, weight_decay=1e-2)
 trainable_params = list(model.adapter.parameters()) + list(model.head.parameters())
 
 num_training_steps = len(train_loader) * EPOCHS
