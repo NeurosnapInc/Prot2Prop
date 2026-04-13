@@ -1,11 +1,12 @@
 """
-Single-task training script for a frozen ProstT5 encoder with a lightweight adapter
-and task head, backed by pre-tokenized train/validation/test tensors.
+Multi-task training script for one shared ProstT5 adapter with task-specific heads,
+backed by per-task tokenized train/validation/test caches.
 """
 
 import math
 import random
-from collections import Counter
+from collections import Counter, defaultdict
+from pathlib import Path
 from typing import Dict, Tuple
 
 import torch
@@ -15,13 +16,13 @@ from torch.utils.data import DataLoader, Dataset, Sampler
 from tqdm import tqdm
 from transformers import T5EncoderModel, get_linear_schedule_with_warmup
 
-from config import MODEL_NAME, TASK_NAME, TOKENIZED_DATA_PATH
+from config import MODEL_NAME, TOKENIZED_DATA_DIR
 
 
 ### Config & hyperparameters
 # Training batch size. Increase until GPU memory or throughput stops improving.
 BATCH_SIZE = 32
-# Optimizer learning rate for the adapter and task head.
+# Optimizer learning rate for the adapter and task heads.
 LR = 1e-4
 # Maximum number of training epochs before early stopping cuts the run short.
 EPOCHS = 10
@@ -40,48 +41,89 @@ PATIENCE = 3
 # Seed used when shuffling bucketed batches each epoch.
 BATCH_SAMPLER_SEED = 42
 
+
 ### Constants
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 AMP_ENABLED = DEVICE.type == "cuda"
 COMPILE_MODEL = DEVICE.type == "cuda"
+PIN_MEMORY = DEVICE.type == "cuda"
+USE_FUSED_ADAMW = DEVICE.type == "cuda"
 
 
-class TokenizedDataset(Dataset):
-  def __init__(self, split_payload):
-    self.input_ids = split_payload["input_ids"]
-    self.labels = split_payload["labels"]
-    self.lengths = split_payload["lengths"]
+class MultiTaskTokenizedDataset(Dataset):
+  def __init__(self, task_payloads):
+    self.samples = []
+    self.task_meta = {}
+    self.pad_token_id = None
+
+    for task_name, payload in task_payloads.items():
+      self.task_meta[task_name] = payload["meta"]
+      if self.pad_token_id is None:
+        self.pad_token_id = payload["config"]["pad_token_id"]
+
+      split = payload["split"]
+      for local_idx, length in enumerate(split["lengths"]):
+        self.samples.append(
+          {
+            "task_name": task_name,
+            "input_ids": split["input_ids"][local_idx],
+            "label": split["labels"][local_idx],
+            "length": int(length),
+          }
+        )
 
   def __len__(self):
-    return len(self.input_ids)
+    return len(self.samples)
 
   def __getitem__(self, idx):
-    return self.input_ids[idx], self.labels[idx], int(self.lengths[idx])
+    return self.samples[idx]
 
 
-class LengthBucketBatchSampler(Sampler):
-  def __init__(self, lengths, batch_size, shuffle, seed):
-    self.lengths = [int(x) for x in lengths]
+class MultiTaskBatchSampler(Sampler):
+  def __init__(self, dataset, batch_size, shuffle, seed):
+    self.dataset = dataset
     self.batch_size = batch_size
     self.shuffle = shuffle
     self.seed = seed
     self.epoch = 0
 
   def __iter__(self):
-    indices = list(range(len(self.lengths)))
+    rng = random.Random(self.seed + self.epoch)
     if self.shuffle:
-      rng = random.Random(self.seed + self.epoch)
-      rng.shuffle(indices)
       self.epoch += 1
-    # Sort inside the epoch so each batch contains similarly sized sequences.
-    indices.sort(key=self.lengths.__getitem__)
-    batches = [indices[i : i + self.batch_size] for i in range(0, len(indices), self.batch_size)]
+
+    indices_by_task = defaultdict(list)
+    for idx, sample in enumerate(self.dataset.samples):
+      indices_by_task[sample["task_name"]].append(idx)
+
+    batches_by_task = {}
+    max_batches = 0
+    for task_name, indices in indices_by_task.items():
+      if self.shuffle:
+        rng.shuffle(indices)
+      # Keep batches homogeneous by task while still minimizing padding.
+      indices.sort(key=lambda idx: self.dataset.samples[idx]["length"])
+      batches = [indices[i : i + self.batch_size] for i in range(0, len(indices), self.batch_size)]
+      if self.shuffle:
+        rng.shuffle(batches)
+      batches_by_task[task_name] = batches
+      max_batches = max(max_batches, len(batches))
+
+    all_batches = []
+    task_names = sorted(batches_by_task.keys())
+    for task_name in task_names:
+      task_batches = batches_by_task[task_name]
+      for batch_idx in range(max_batches):
+        # Oversample smaller tasks so each task contributes the same number of batches per epoch.
+        all_batches.append(task_batches[batch_idx % len(task_batches)])
+
     if self.shuffle:
-      rng.shuffle(batches)
-    return iter(batches)
+      rng.shuffle(all_batches)
+    return iter(all_batches)
 
   def __len__(self):
-    return (len(self.lengths) + self.batch_size - 1) // self.batch_size
+    indices_by_task = Counter(sample["task_name"] for sample in self.dataset.samples)
+    return max(math.ceil(count / self.batch_size) for count in indices_by_task.values()) * len(indices_by_task)
 
 
 class Adapter(nn.Module):
@@ -124,20 +166,24 @@ class AttnPool(nn.Module):
     return torch.bmm(attn.unsqueeze(1), x).squeeze(1)
 
 
-class TaskAdapterModel(nn.Module):
-  def __init__(self, base_model, embed_dim, output_dim, adapter_dim=ADAPTER_DIM, dropout=DROPOUT):
+class MultiTaskAdapterModel(nn.Module):
+  def __init__(self, base_model, task_metas, train_labels_by_task, embed_dim, adapter_dim=ADAPTER_DIM, dropout=DROPOUT):
     super().__init__()
     self.base = base_model
     for p in self.base.parameters():
       p.requires_grad = False
     self.adapter = Adapter(embed_dim, adapter_dim, dropout_prob=dropout)
     self.pool = AttnPool(embed_dim, hidden=ATTN_POOL_HIDDEN, dropout=dropout)
-    self.head = nn.Sequential(
-      nn.LayerNorm(embed_dim),
-      nn.Linear(embed_dim, output_dim),
-    )
+    self.heads = nn.ModuleDict()
 
-  def forward(self, input_ids, attention_mask):
+    for task_name, meta in task_metas.items():
+      output_dim = _output_dim_from_meta(meta, train_labels_by_task[task_name])
+      self.heads[task_name] = nn.Sequential(
+        nn.LayerNorm(embed_dim),
+        nn.Linear(embed_dim, output_dim),
+      )
+
+  def encode(self, input_ids, attention_mask):
     if input_ids.dtype != torch.long:
       input_ids = input_ids.long()
     if attention_mask.dtype not in (torch.long, torch.int64, torch.bool):
@@ -146,8 +192,11 @@ class TaskAdapterModel(nn.Module):
     out = self.base(input_ids=input_ids, attention_mask=attention_mask)
     token_repr = out.last_hidden_state
     adapted = token_repr + self.adapter(token_repr)
-    pooled = self.pool(adapted, attention_mask)
-    return self.head(pooled)
+    return self.pool(adapted, attention_mask)
+
+  def forward(self, input_ids, attention_mask, task_name):
+    pooled = self.encode(input_ids, attention_mask)
+    return self.heads[task_name](pooled)
 
 
 def _build_loss(meta: Dict[str, str], train_labels):
@@ -196,48 +245,73 @@ def _output_dim_from_meta(meta: Dict[str, str], train_labels: torch.Tensor) -> i
 
 
 def _collate_batch(batch, pad_token_id):
-  input_ids, labels, _ = zip(*batch)
+  task_names = [sample["task_name"] for sample in batch]
+  task_name = task_names[0]
+  if any(name != task_name for name in task_names):
+    raise ValueError("Each batch must contain samples from exactly one task")
+
+  input_ids = [sample["input_ids"] for sample in batch]
+  labels = torch.stack([sample["label"] for sample in batch])
   # Pad only to the longest sequence in this batch.
   padded_ids = nn.utils.rnn.pad_sequence(input_ids, batch_first=True, padding_value=pad_token_id)
   attention_mask = padded_ids.ne(pad_token_id).long()
-  labels = torch.stack(labels)
-  return padded_ids, attention_mask, labels
+  return task_name, padded_ids, attention_mask, labels
 
 
-print("Loading tokenized splits")
-if not TOKENIZED_DATA_PATH.exists():
-  raise FileNotFoundError(f"Tokenized data not found at {TOKENIZED_DATA_PATH}. Run tokenize_data.py first.")
+print("Loading tokenized multi-task splits")
+tokenized_paths = sorted(Path(TOKENIZED_DATA_DIR).glob("*_prostt5_tokens.pt"))
+if not tokenized_paths:
+  raise FileNotFoundError(f"No tokenized task files found under {TOKENIZED_DATA_DIR}. Run tokenize_data.py first.")
 
-payload = torch.load(TOKENIZED_DATA_PATH, map_location="cpu")
-meta = payload["meta"]
-splits = payload["splits"]
-pad_token_id = payload["config"]["pad_token_id"]
+train_payloads = {}
+val_payloads = {}
+for path in tokenized_paths:
+  payload = torch.load(path, map_location="cpu")
+  task_name = payload["meta"]["task_name"]
+  train_payloads[task_name] = {
+    "meta": payload["meta"],
+    "config": payload["config"],
+    "split": payload["splits"]["train"],
+  }
+  val_payloads[task_name] = {
+    "meta": payload["meta"],
+    "config": payload["config"],
+    "split": payload["splits"]["validation"],
+  }
 
-print(f"Task={meta['task_name']} dtype={meta['dtype']} head={meta['head_type']} loss={meta['loss']}")
-print(f"Rows: train={splits['train']['labels'].shape[0]} val={splits['validation']['labels'].shape[0]} test={splits['test']['labels'].shape[0]}")
+train_ds = MultiTaskTokenizedDataset(train_payloads)
+val_ds = MultiTaskTokenizedDataset(val_payloads)
+pad_token_id = train_ds.pad_token_id
+
+print(f"Loaded {len(train_payloads)} tasks from {TOKENIZED_DATA_DIR}")
+for task_name in sorted(train_payloads):
+  meta = train_payloads[task_name]["meta"]
+  train_rows = train_payloads[task_name]["split"]["labels"].shape[0]
+  val_rows = val_payloads[task_name]["split"]["labels"].shape[0]
+  print(f"Task={task_name} dtype={meta['dtype']} head={meta['head_type']} loss={meta['loss']} train={train_rows} val={val_rows}")
 
 base_model = T5EncoderModel.from_pretrained(MODEL_NAME).to(DEVICE)
 if DEVICE.type == "cuda":
   base_model.bfloat16()
 
-train_ds = TokenizedDataset(splits["train"])
-val_ds = TokenizedDataset(splits["validation"])
-
 train_loader = DataLoader(
   train_ds,
-  batch_sampler=LengthBucketBatchSampler(splits["train"]["lengths"], BATCH_SIZE, shuffle=True, seed=BATCH_SAMPLER_SEED),
+  batch_sampler=MultiTaskBatchSampler(train_ds, BATCH_SIZE, shuffle=True, seed=BATCH_SAMPLER_SEED),
   collate_fn=lambda batch: _collate_batch(batch, pad_token_id),
+  pin_memory=PIN_MEMORY,
 )
 val_loader = DataLoader(
   val_ds,
-  batch_sampler=LengthBucketBatchSampler(splits["validation"]["lengths"], BATCH_SIZE, shuffle=False, seed=BATCH_SAMPLER_SEED),
+  batch_sampler=MultiTaskBatchSampler(val_ds, BATCH_SIZE, shuffle=False, seed=BATCH_SAMPLER_SEED),
   collate_fn=lambda batch: _collate_batch(batch, pad_token_id),
+  pin_memory=PIN_MEMORY,
 )
 
 print("Initializing model")
+task_metas = {task_name: payload["meta"] for task_name, payload in train_payloads.items()}
+train_labels_by_task = {task_name: payload["split"]["labels"] for task_name, payload in train_payloads.items()}
 embed_dim = base_model.config.d_model
-output_dim = _output_dim_from_meta(meta, splits["train"]["labels"])
-model = TaskAdapterModel(base_model, embed_dim, output_dim=output_dim, adapter_dim=ADAPTER_DIM, dropout=DROPOUT).to(DEVICE)
+model = MultiTaskAdapterModel(base_model, task_metas, train_labels_by_task, embed_dim=embed_dim, adapter_dim=ADAPTER_DIM, dropout=DROPOUT).to(DEVICE)
 
 if COMPILE_MODEL and hasattr(torch, "compile"):
   print("Compiling model")
@@ -246,17 +320,23 @@ if COMPILE_MODEL and hasattr(torch, "compile"):
   except Exception as exc:
     print(f"torch.compile unavailable, continuing without compile: {exc}")
 
-criterion = _build_loss(meta, splits["train"]["labels"].view(-1).tolist())
-optimizer = torch.optim.AdamW([{"params": model.adapter.parameters()}, {"params": model.head.parameters()}], lr=LR, weight_decay=WEIGHT_DECAY)
-trainable_params = list(model.adapter.parameters()) + list(model.head.parameters())
+criteria = {
+  task_name: _build_loss(meta, train_labels_by_task[task_name].view(-1).tolist())
+  for task_name, meta in task_metas.items()
+}
+optimizer = torch.optim.AdamW(
+  [{"params": model.adapter.parameters()}, {"params": model.pool.parameters()}, {"params": model.heads.parameters()}],
+  lr=LR,
+  weight_decay=WEIGHT_DECAY,
+  fused=USE_FUSED_ADAMW,
+)
+trainable_params = list(model.adapter.parameters()) + list(model.pool.parameters()) + list(model.heads.parameters())
 
 num_training_steps = len(train_loader) * EPOCHS
 num_warmup_steps = int(WARMUP_RATIO * num_training_steps)
 scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps)
 
-is_regression = meta["dtype"] == "float"
-best_metric = float("inf") if is_regression else -1.0
-patience = PATIENCE
+best_metric = -float("inf")
 stale = 0
 best_state = None
 
@@ -264,14 +344,14 @@ for epoch in range(EPOCHS):
   model.train()
   total_loss = 0.0
 
-  for input_ids, attn_mask, labels in tqdm(train_loader, desc=f"Epoch {epoch + 1}/{EPOCHS}"):
-    input_ids = input_ids.to(DEVICE)
-    attn_mask = attn_mask.to(DEVICE)
-    labels = labels.to(DEVICE)
+  for task_name, input_ids, attn_mask, labels in tqdm(train_loader, desc=f"Epoch {epoch + 1}/{EPOCHS}"):
+    input_ids = input_ids.to(DEVICE, non_blocking=PIN_MEMORY)
+    attn_mask = attn_mask.to(DEVICE, non_blocking=PIN_MEMORY)
+    labels = labels.to(DEVICE, non_blocking=PIN_MEMORY)
 
     with torch.amp.autocast("cuda", dtype=torch.bfloat16, enabled=AMP_ENABLED):
-      preds = model(input_ids, attn_mask)
-      loss = criterion(preds, labels)
+      preds = model(input_ids, attn_mask, task_name)
+      loss = criteria[task_name](preds, labels)
 
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
@@ -281,65 +361,83 @@ for epoch in range(EPOCHS):
     total_loss += loss.item()
 
   model.eval()
-  all_preds, all_labels = [], []
+  val_predictions = {task_name: {"preds": [], "labels": []} for task_name in task_metas}
   with torch.no_grad():
-    for input_ids, attn_mask, labels in val_loader:
-      input_ids = input_ids.to(DEVICE)
-      attn_mask = attn_mask.to(DEVICE)
-      labels = labels.to(DEVICE)
+    for task_name, input_ids, attn_mask, labels in val_loader:
+      input_ids = input_ids.to(DEVICE, non_blocking=PIN_MEMORY)
+      attn_mask = attn_mask.to(DEVICE, non_blocking=PIN_MEMORY)
+      labels = labels.to(DEVICE, non_blocking=PIN_MEMORY)
+
       with torch.amp.autocast("cuda", dtype=torch.bfloat16, enabled=AMP_ENABLED):
-        outputs = model(input_ids, attn_mask)
+        outputs = model(input_ids, attn_mask, task_name)
 
-      if is_regression:
-        all_preds.extend(outputs.squeeze(-1).float().cpu().numpy().tolist())
-        all_labels.extend(labels.squeeze(-1).float().cpu().numpy().tolist())
+      if task_metas[task_name]["dtype"] == "float":
+        val_predictions[task_name]["preds"].extend(outputs.squeeze(-1).float().cpu().numpy().tolist())
+        val_predictions[task_name]["labels"].extend(labels.squeeze(-1).float().cpu().numpy().tolist())
       else:
-        all_preds.extend(outputs.argmax(dim=1).cpu().numpy().tolist())
-        all_labels.extend(labels.cpu().numpy().tolist())
+        val_predictions[task_name]["preds"].extend(outputs.argmax(dim=1).cpu().numpy().tolist())
+        val_predictions[task_name]["labels"].extend(labels.cpu().numpy().tolist())
 
-  metric_name, metric_value, report = _metric_from_preds(all_labels, all_preds, meta["dtype"])
-  report_parts = [f"{k.upper()}: {v:.4f}" for k, v in report.items()]
-  print(f"Train Loss: {total_loss / len(train_loader):.4f} | Val " + " ".join(report_parts))
+  task_reports = {}
+  aggregate_score = 0.0
+  for task_name, values in val_predictions.items():
+    metric_name, metric_value, report = _metric_from_preds(values["labels"], values["preds"], task_metas[task_name]["dtype"])
+    task_reports[task_name] = {
+      "metric_name": metric_name,
+      "metric_value": metric_value,
+      "report": report,
+    }
+    aggregate_score += -metric_value if task_metas[task_name]["dtype"] == "float" else metric_value
 
-  improved = metric_value < best_metric if is_regression else metric_value > best_metric
-  if improved:
-    best_metric = metric_value
+  aggregate_score /= len(task_reports)
+  summary_parts = []
+  for task_name in sorted(task_reports):
+    metric_name = task_reports[task_name]["metric_name"].upper()
+    metric_value = task_reports[task_name]["metric_value"]
+    summary_parts.append(f"{task_name}:{metric_name}={metric_value:.4f}")
+  print(f"Train Loss: {total_loss / len(train_loader):.4f} | Val " + " ".join(summary_parts))
+
+  if aggregate_score > best_metric:
+    best_metric = aggregate_score
     stale = 0
     best_state = {
       "adapter": {k: v.cpu() for k, v in model.adapter.state_dict().items()},
-      "head": {k: v.cpu() for k, v in model.head.state_dict().items()},
-      "metric_name": metric_name,
-      "metric_value": metric_value,
+      "pool": {k: v.cpu() for k, v in model.pool.state_dict().items()},
+      "heads": {task_name: {k: v.cpu() for k, v in head.state_dict().items()} for task_name, head in model.heads.items()},
+      "aggregate_score": aggregate_score,
+      "task_reports": task_reports,
     }
   else:
     stale += 1
-    if stale >= patience:
+    if stale >= PATIENCE:
       print("Early stopping.")
       break
 
 if best_state is not None:
   model.adapter.load_state_dict(best_state["adapter"])
-  model.head.load_state_dict(best_state["head"])
+  model.pool.load_state_dict(best_state["pool"])
+  for task_name, state_dict in best_state["heads"].items():
+    model.heads[task_name].load_state_dict(state_dict)
 
-out_path = f"./{TASK_NAME}_prostt5_adapter_best.pt"
+out_path = "./prostt5_multitask_adapter_best.pt"
 torch.save(
   {
     "adapter_state_dict": model.adapter.state_dict(),
-    "head_state_dict": model.head.state_dict(),
+    "pool_state_dict": model.pool.state_dict(),
+    "head_state_dicts": {task_name: head.state_dict() for task_name, head in model.heads.items()},
     "config": {
       "embed_dim": embed_dim,
-      "output_dim": output_dim,
       "adapter_dim": ADAPTER_DIM,
+      "dropout": DROPOUT,
+      "attn_pool_hidden": ATTN_POOL_HIDDEN,
       "model_name": MODEL_NAME,
-      "tokenized_data_path": str(TOKENIZED_DATA_PATH),
-      "task_name": TASK_NAME,
-      "task_dtype": meta["dtype"],
-      "head_type": meta["head_type"],
-      "loss": meta["loss"],
-      "best_metric_name": best_state["metric_name"] if best_state else None,
-      "best_metric_value": best_state["metric_value"] if best_state else None,
+      "tokenized_data_dir": str(TOKENIZED_DATA_DIR),
+      "task_names": sorted(task_metas.keys()),
+      "task_metas": task_metas,
+      "best_aggregate_score": best_state["aggregate_score"] if best_state else None,
+      "best_task_reports": best_state["task_reports"] if best_state else None,
     },
   },
   out_path,
 )
-print(f"Saved best adapter+head -> {out_path}")
+print(f"Saved best shared adapter+heads -> {out_path}")
