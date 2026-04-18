@@ -46,6 +46,7 @@ class TaskSpec:
     subset: Optional dataset subset/config name passed as the second argument
       to `datasets.load_dataset`.
   """
+
   task_name: str
   dataset: str
   dtype: str
@@ -106,14 +107,14 @@ TASKS: List[TaskSpec] = [
   ),
   # ProteinGym DMS Substitution dataset
   TaskSpec(
-    task_name='aggregation_propensity',
-    dataset='ProteinGym/aggregation_propensity',
-    dtype='float',
-    head_type='sequence_regression',
+    task_name="aggregation_propensity",
+    dataset="ProteinGym/aggregation_propensity",
+    dtype="float",
+    head_type="sequence_regression",
     num_classes=None,
-    loss='mse',
-    sequence_col='mutated_sequence',
-    label_col='DMS_score',
+    loss="mse",
+    sequence_col="mutated_sequence",
+    label_col="DMS_score",
   ),
   # TaskSpec( # TODO: Add this in the future whenever we add support for target + binder in same context
   #   task_name='binding_affinity',
@@ -126,54 +127,54 @@ TASKS: List[TaskSpec] = [
   #   label_col='DMS_score',
   # ),
   TaskSpec(
-    task_name='enzymatic_activity',
-    dataset='ProteinGym/enzymatic_activity',
-    dtype='float',
-    head_type='sequence_regression',
+    task_name="enzymatic_activity",
+    dataset="ProteinGym/enzymatic_activity",
+    dtype="float",
+    head_type="sequence_regression",
     num_classes=None,
-    loss='mse',
-    sequence_col='mutated_sequence',
-    label_col='DMS_score',
+    loss="mse",
+    sequence_col="mutated_sequence",
+    label_col="DMS_score",
   ),
   TaskSpec(
-    task_name='expression_yield',
-    dataset='ProteinGym/expression_yield',
-    dtype='float',
-    head_type='sequence_regression',
+    task_name="expression_yield",
+    dataset="ProteinGym/expression_yield",
+    dtype="float",
+    head_type="sequence_regression",
     num_classes=None,
-    loss='mse',
-    sequence_col='mutated_sequence',
-    label_col='DMS_score',
+    loss="mse",
+    sequence_col="mutated_sequence",
+    label_col="DMS_score",
   ),
   TaskSpec(
-    task_name='folding_stability',
-    dataset='ProteinGym/folding_stability',
-    dtype='float',
-    head_type='sequence_regression',
+    task_name="folding_stability",
+    dataset="ProteinGym/folding_stability",
+    dtype="float",
+    head_type="sequence_regression",
     num_classes=None,
-    loss='mse',
-    sequence_col='mutated_sequence',
-    label_col='DMS_score',
+    loss="mse",
+    sequence_col="mutated_sequence",
+    label_col="DMS_score",
   ),
   TaskSpec(
-    task_name='membrane_topology',
-    dataset='ProteinGym/membrane_topology',
-    dtype='float',
-    head_type='sequence_regression',
+    task_name="membrane_topology",
+    dataset="ProteinGym/membrane_topology",
+    dtype="float",
+    head_type="sequence_regression",
     num_classes=None,
-    loss='mse',
-    sequence_col='mutated_sequence',
-    label_col='DMS_score',
+    loss="mse",
+    sequence_col="mutated_sequence",
+    label_col="DMS_score",
   ),
   TaskSpec(
-    task_name='thermostability',
-    dataset='ProteinGym/thermostability',
-    dtype='float',
-    head_type='sequence_regression',
+    task_name="thermostability",
+    dataset="ProteinGym/thermostability",
+    dtype="float",
+    head_type="sequence_regression",
     num_classes=None,
-    loss='mse',
-    sequence_col='mutated_sequence',
-    label_col='DMS_score',
+    loss="mse",
+    sequence_col="mutated_sequence",
+    label_col="DMS_score",
   ),
 ]
 
@@ -231,15 +232,10 @@ def _load_proteingym_dataset(
     datasets[filename] = CSVDataset(pd.read_csv(csv_path))
 
   if not datasets:
-    raise ValueError(
-      f"No ProteinGym CSV files matched manifest '{manifest_path}' under {path}"
-    )
+    raise ValueError(f"No ProteinGym CSV files matched manifest '{manifest_path}' under {path}")
 
   if missing_files:
-    print(
-      f"Task={task.task_name} manifest_missing_files={len(missing_files)} "
-      f"(not found under {path}, likely absent from this ProteinGym subset)"
-    )
+    print(f"Task={task.task_name} manifest_missing_files={len(missing_files)} (not found under {path}, likely absent from this ProteinGym subset)")
 
   return datasets
 
