@@ -115,7 +115,7 @@ TASKS: List[TaskSpec] = [
     sequence_col='mutated_sequence',
     label_col='DMS_score',
   ),
-  # TaskSpec(
+  # TaskSpec( # TODO: Add this in the future whenever we add support for target + binder in same context
   #   task_name='binding_affinity',
   #   dataset='ProteinGym/binding_affinity',
   #   dtype='float',
