@@ -483,9 +483,15 @@ for epoch in range(EPOCHS):
   aggregate_score /= max(1, scored_tasks)
   summary_parts = []
   for task_name in sorted(task_reports):
-    metric_name = task_reports[task_name]["metric_name"].upper()
-    metric_value = task_reports[task_name]["metric_value"]
-    summary_parts.append(f"{task_name}:{metric_name}={metric_value:.4f}")
+    report = task_reports[task_name]["report"]
+    if task_metas[task_name]["dtype"] in ("bool", "int"):
+      summary_parts.append(
+        f"{task_name}:ACC={report['acc']:.4f} F1={report['f1']:.4f}"
+      )
+    else:
+      summary_parts.append(
+        f"{task_name}:MAE={report['mae']:.4f} RMSE={report['rmse']:.4f}"
+      )
   print(f"Train Loss: {total_loss / len(train_loader):.4f} | Val " + " ".join(summary_parts))
 
   if aggregate_score > best_metric:
