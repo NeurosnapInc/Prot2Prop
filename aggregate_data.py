@@ -167,8 +167,8 @@ TASKS: List[TaskSpec] = [
   #   label_col="DMS_score",
   # ),
   TaskSpec(
-    task_name="temperature_stability",
-    dataset="ProteinGym/temperature_stability",
+    task_name="temperature_stability_abs",
+    dataset="ProteinGym/thermostability",
     dtype="float",
     head_type="sequence_regression",
     num_classes=None,
