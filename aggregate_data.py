@@ -5,7 +5,7 @@ Inspect Results: duckdb -ui data/aggregated/aggregated.duckdb
 Tables:
 - samples(sequence, source, task_name, label)
   - UNIQUE(sequence, task_name)
-- tasks(task_name, dtype, head_type, num_classes, loss)
+- tasks(task_name, dtype, head_type, num_classes, loss, label_semantics)
   - PRIMARY KEY(task_name)
 """
 
@@ -39,6 +39,8 @@ class TaskSpec:
       `None` for regression tasks.
     loss: Preferred loss name for downstream training metadata (for example
       `bce` or `mse`).
+    label_semantics: Coarse label meaning for downstream handling. Use values
+      such as `binary`, `relative_score`, or `absolute_measurement`.
     sequence_col: Optional explicit sequence column name. If `None`, the script
       infers from known sequence column candidates.
     label_col: Optional explicit label column name. If `None`, the script
@@ -53,6 +55,7 @@ class TaskSpec:
   head_type: str
   num_classes: Optional[int]
   loss: str
+  label_semantics: str
   sequence_col: Optional[str] = None
   label_col: Optional[str] = None
   subset: Optional[str] = None
@@ -84,6 +87,7 @@ TASKS: List[TaskSpec] = [
     head_type="sequence_binary",
     num_classes=2,
     loss="bce",
+    label_semantics="binary",
   ),
   # DeepSol has a known non-default sequence column (`aa_seq`).
   TaskSpec(
@@ -93,6 +97,7 @@ TASKS: List[TaskSpec] = [
     head_type="sequence_binary",
     num_classes=2,
     loss="bce",
+    label_semantics="binary",
     sequence_col="aa_seq",
     label_col="label",
   ),
@@ -104,6 +109,7 @@ TASKS: List[TaskSpec] = [
     head_type="sequence_binary",
     num_classes=2,
     loss="bce",
+    label_semantics="binary",
   ),
   # ProteinGym DMS Substitution dataset
   TaskSpec(
@@ -113,6 +119,7 @@ TASKS: List[TaskSpec] = [
     head_type="sequence_regression",
     num_classes=None,
     loss="mse",
+    label_semantics="relative_score",
     sequence_col="mutated_sequence",
     label_col="DMS_score",
   ),
@@ -123,6 +130,7 @@ TASKS: List[TaskSpec] = [
   #   head_type='sequence_regression',
   #   num_classes=None,
   #   loss='mse',
+  #   label_semantics='relative_score',
   #   sequence_col='mutated_sequence',
   #   label_col='DMS_score',
   # ),
@@ -133,6 +141,7 @@ TASKS: List[TaskSpec] = [
   #   head_type="sequence_regression",
   #   num_classes=None,
   #   loss="mse",
+  #   label_semantics="relative_score",
   #   sequence_col="mutated_sequence",
   #   label_col="DMS_score",
   # ),
@@ -143,6 +152,7 @@ TASKS: List[TaskSpec] = [
     head_type="sequence_regression",
     num_classes=None,
     loss="mse",
+    label_semantics="relative_score",
     sequence_col="mutated_sequence",
     label_col="DMS_score",
   ),
@@ -153,6 +163,7 @@ TASKS: List[TaskSpec] = [
     head_type="sequence_regression",
     num_classes=None,
     loss="mse",
+    label_semantics="relative_score",
     sequence_col="mutated_sequence",
     label_col="DMS_score",
   ),
@@ -163,6 +174,7 @@ TASKS: List[TaskSpec] = [
   #   head_type="sequence_regression",
   #   num_classes=None,
   #   loss="mse",
+  #   label_semantics="relative_score",
   #   sequence_col="mutated_sequence",
   #   label_col="DMS_score",
   # ),
@@ -173,6 +185,7 @@ TASKS: List[TaskSpec] = [
     head_type="sequence_regression",
     num_classes=None,
     loss="mse",
+    label_semantics="absolute_measurement",
     sequence_col="mutated_sequence",
     label_col="DMS_score",
   ),
@@ -298,7 +311,8 @@ def _prepare_db(con: duckdb.DuckDBPyConnection):
       dtype VARCHAR NOT NULL,
       head_type VARCHAR NOT NULL,
       num_classes INTEGER,
-      loss VARCHAR NOT NULL
+      loss VARCHAR NOT NULL,
+      label_semantics VARCHAR NOT NULL
     )
     """
   )
@@ -323,25 +337,25 @@ def _insert_task(con: duckdb.DuckDBPyConnection, task: TaskSpec):
   # If the same task_name appears multiple times, keep the first metadata row.
   con.execute(
     """
-    INSERT INTO tasks(task_name, dtype, head_type, num_classes, loss)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO tasks(task_name, dtype, head_type, num_classes, loss, label_semantics)
+    VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(task_name) DO NOTHING
     """,
-    [task.task_name, task.dtype, task.head_type, task.num_classes, task.loss],
+    [task.task_name, task.dtype, task.head_type, task.num_classes, task.loss, task.label_semantics],
   )
 
   # Ensure all sources that map to one task_name agree on metadata.
   row = con.execute(
     """
-    SELECT dtype, head_type, num_classes, loss
+    SELECT dtype, head_type, num_classes, loss, label_semantics
     FROM tasks
     WHERE task_name = ?
     """,
     [task.task_name],
   ).fetchone()
-  if row != (task.dtype, task.head_type, task.num_classes, task.loss):
+  if row != (task.dtype, task.head_type, task.num_classes, task.loss, task.label_semantics):
     raise ValueError(
-      f"Inconsistent metadata for task '{task.task_name}'. Existing={row}, incoming={(task.dtype, task.head_type, task.num_classes, task.loss)}"
+      f"Inconsistent metadata for task '{task.task_name}'. Existing={row}, incoming={(task.dtype, task.head_type, task.num_classes, task.loss, task.label_semantics)}"
     )
 
 
@@ -425,7 +439,7 @@ def _insert_task_samples(
   print(f"Task={task.task_name} inserted={len(rows)} skipped_missing={total_skipped} skipped_duplicate={total_duplicates}")
 
 
-def _label_semantics(min_label: float, max_label: float, mean_label: float, unique_labels: int, dtype: str) -> str:
+def _infer_label_semantics(min_label: float, max_label: float, mean_label: float, unique_labels: int, dtype: str) -> str:
   # Infer a coarse label-shape tag for quick dataset auditing before training.
   if dtype == "bool" or (unique_labels <= 2 and min_label >= 0.0 and max_label <= 1.0):
     return "binary-like"
@@ -449,6 +463,7 @@ def _print_dataset_audit(con: duckdb.DuckDBPyConnection):
     SELECT
       t.task_name,
       t.dtype,
+      t.label_semantics,
       COUNT(*) AS row_count,
       COUNT(DISTINCT s.source) AS source_count,
       COUNT(DISTINCT s.label) AS unique_label_count,
@@ -457,17 +472,17 @@ def _print_dataset_audit(con: duckdb.DuckDBPyConnection):
       AVG(s.label) AS mean_label
     FROM tasks t
     JOIN samples s ON s.task_name = t.task_name
-    GROUP BY t.task_name, t.dtype
+    GROUP BY t.task_name, t.dtype, t.label_semantics
     ORDER BY t.task_name
     """
   ).fetchall()
 
-  for task_name, dtype, row_count, source_count, unique_label_count, min_label, max_label, mean_label in rows:
-    semantics = _label_semantics(min_label, max_label, mean_label, unique_label_count, dtype)
+  for task_name, dtype, declared_semantics, row_count, source_count, unique_label_count, min_label, max_label, mean_label in rows:
+    inferred_semantics = _infer_label_semantics(min_label, max_label, mean_label, unique_label_count, dtype)
     print(
       f"Audit task={task_name} dtype={dtype} rows={row_count} sources={source_count} "
       f"unique_labels={unique_label_count} range=[{min_label:.6g}, {max_label:.6g}] "
-      f"mean={mean_label:.6g} semantics={semantics}"
+      f"mean={mean_label:.6g} declared_semantics={declared_semantics} inferred_semantics={inferred_semantics}"
     )
 
 
