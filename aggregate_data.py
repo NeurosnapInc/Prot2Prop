@@ -96,14 +96,14 @@ TASKS: List[TaskSpec] = [
     sequence_col="aa_seq",
     label_col="label",
   ),
-  # Temperature stability modeled as sequence-level regression.
+  # AI4Protein temperature stability is a binary label in the current dataset.
   TaskSpec(
     task_name="temperature_stability",
     dataset="AI4Protein/temperature_stability",
-    dtype="float",
-    head_type="sequence_regression",
-    num_classes=None,
-    loss="mse",
+    dtype="bool",
+    head_type="sequence_binary",
+    num_classes=2,
+    loss="bce",
   ),
   # ProteinGym DMS Substitution dataset
   TaskSpec(
