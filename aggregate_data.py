@@ -26,7 +26,7 @@ class TaskSpec:
   Args:
     task_name: Name of the prediction target. This should usually map directly
       to the biochemical property being predicted (for example
-      `enzyme_activity`, `thermostability`, or `solubility`). Use non-property
+      `enzyme_activity`, `temperature_stability`, or `solubility`). Use non-property
       names only when there is a clear exception.
     dataset: Dataset identifier passed to `datasets.load_dataset`, or a marker
       name used by custom loaders (for example `ProteinGym` for local CSV
@@ -167,8 +167,8 @@ TASKS: List[TaskSpec] = [
   #   label_col="DMS_score",
   # ),
   TaskSpec(
-    task_name="thermostability",
-    dataset="ProteinGym/thermostability",
+    task_name="temperature_stability",
+    dataset="ProteinGym/temperature_stability",
     dtype="float",
     head_type="sequence_regression",
     num_classes=None,
