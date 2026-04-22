@@ -425,6 +425,52 @@ def _insert_task_samples(
   print(f"Task={task.task_name} inserted={len(rows)} skipped_missing={total_skipped} skipped_duplicate={total_duplicates}")
 
 
+def _label_semantics(min_label: float, max_label: float, mean_label: float, unique_labels: int, dtype: str) -> str:
+  # Infer a coarse label-shape tag for quick dataset auditing before training.
+  if dtype == "bool" or (unique_labels <= 2 and min_label >= 0.0 and max_label <= 1.0):
+    return "binary-like"
+
+  if min_label >= 0.0 and max_label <= 1.0:
+    return "bounded"
+
+  # Treat approximately zero-centered targets as relative mutation-effect style scores.
+  max_abs = max(abs(min_label), abs(max_label))
+  if min_label < 0.0 < max_label and max_abs > 0 and abs(mean_label) <= max(0.25, 0.1 * max_abs):
+    return "centered"
+
+  return "absolute-scale"
+
+
+def _print_dataset_audit(con: duckdb.DuckDBPyConnection):
+  # Summarize each task's observed label distribution from the aggregated DB.
+  print("\nDataset audit")
+  rows = con.execute(
+    """
+    SELECT
+      t.task_name,
+      t.dtype,
+      COUNT(*) AS row_count,
+      COUNT(DISTINCT s.source) AS source_count,
+      COUNT(DISTINCT s.label) AS unique_label_count,
+      MIN(s.label) AS min_label,
+      MAX(s.label) AS max_label,
+      AVG(s.label) AS mean_label
+    FROM tasks t
+    JOIN samples s ON s.task_name = t.task_name
+    GROUP BY t.task_name, t.dtype
+    ORDER BY t.task_name
+    """
+  ).fetchall()
+
+  for task_name, dtype, row_count, source_count, unique_label_count, min_label, max_label, mean_label in rows:
+    semantics = _label_semantics(min_label, max_label, mean_label, unique_label_count, dtype)
+    print(
+      f"Audit task={task_name} dtype={dtype} rows={row_count} sources={source_count} "
+      f"unique_labels={unique_label_count} range=[{min_label:.6g}, {max_label:.6g}] "
+      f"mean={mean_label:.6g} semantics={semantics}"
+    )
+
+
 def aggregate(tasks: List[TaskSpec], out_db: Path, cache_dir: Optional[str], proteingym: Optional[str]):
   # Build the DuckDB file for all configured tasks.
   # The output DB is self-contained and can be queried directly via DuckDB/SQLite-style SQL workflows.
@@ -439,6 +485,7 @@ def aggregate(tasks: List[TaskSpec], out_db: Path, cache_dir: Optional[str], pro
 
     total = con.execute("SELECT COUNT(*) FROM samples").fetchone()[0]
     print(f"Aggregation complete: {total} sample rows written to {out_db}")
+    _print_dataset_audit(con)
   finally:
     con.close()
 
