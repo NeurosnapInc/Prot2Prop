@@ -1,17 +1,31 @@
 from pathlib import Path
 
+### Model Settings
+# Hugging Face model identifier for the frozen ProstT5 encoder backbone.
 MODEL_NAME = "Rostlab/ProstT5"
+# DuckDB database path containing the aggregated multitask samples and task metadata.
 AGGREGATED_DB_PATH = "data/aggregated/aggregated.duckdb"
+# Default task name used by legacy single-task cache paths.
 TASK_NAME = "solubility"
 
+### Data Split Settings
+# Random seed used when shuffling sequences into train, validation, and test splits.
 SPLIT_SEED = 42
+# Fraction of sequences assigned to the training split.
 TRAIN_FRACTION = 0.8
+# Fraction of sequences assigned to the validation split.
 VAL_FRACTION = 0.1
+# Fraction of sequences assigned to the test split.
 TEST_FRACTION = 0.1
 
+### Tokenization Settings
+# Maximum token length allowed during sequence tokenization before truncation.
 MAX_LENGTH = 1024 * 2
 
+### Cache Paths
+# Directory where tokenized dataset artifacts are written and loaded from.
 TOKENIZED_DATA_DIR = Path("data/tokenized")
+# Default single-task tokenized cache path derived from the selected task name.
 TOKENIZED_DATA_PATH = TOKENIZED_DATA_DIR / f"{TASK_NAME}_prostt5_tokens.pt"
 
 ### Model Settings & Hyperparameters
