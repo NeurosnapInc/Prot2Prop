@@ -15,21 +15,20 @@ from torch.utils.data import DataLoader, Dataset, Sampler
 from tqdm import tqdm
 from transformers import T5EncoderModel, get_linear_schedule_with_warmup
 
-from config import MODEL_NAME, TOKENIZED_DATA_DIR
-
-
-### Config & hyperparameters
-BATCH_SIZE = 32
-LR = 1e-4
-EPOCHS = 10
-ADAPTER_DIM = 64
-DROPOUT = 0.1
-ATTN_POOL_HIDDEN = 256
-WEIGHT_DECAY = 1e-2
-WARMUP_RATIO = 0.05
-PATIENCE = 3
-BATCH_SAMPLER_SEED = 42
-TRAIN_CACHE_PATH = TOKENIZED_DATA_DIR / "multitask_prostt5_tokens.pt"
+from config import (
+  ADAPTER_DIM,
+  ATTN_POOL_HIDDEN,
+  BATCH_SAMPLER_SEED,
+  BATCH_SIZE,
+  DROPOUT,
+  EPOCHS,
+  LR,
+  MODEL_NAME,
+  PATIENCE,
+  TRAIN_CACHE_PATH,
+  WARMUP_RATIO,
+  WEIGHT_DECAY,
+)
 
 
 ### Constants
