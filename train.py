@@ -11,7 +11,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, mean_squared_error
-from torch.utils.data import DataLoader, Dataset, Sampler
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import T5EncoderModel, get_linear_schedule_with_warmup
 
@@ -29,6 +29,14 @@ from config import (
   WARMUP_RATIO,
   WEIGHT_DECAY,
 )
+from model import (
+  MultiTaskAdapterModel,
+  MultiTaskBatchSampler,
+  MultiTaskSequenceDataset,
+  collate_multitask_batch,
+  output_dim_from_meta,
+  unwrap_model,
+)
 
 
 ### Constants
@@ -37,159 +45,6 @@ AMP_ENABLED = DEVICE.type == "cuda"
 COMPILE_MODEL = DEVICE.type == "cuda"
 PIN_MEMORY = DEVICE.type == "cuda"
 USE_FUSED_ADAMW = DEVICE.type == "cuda"
-
-
-class MultiTaskSequenceDataset(Dataset):
-  def __init__(self, split_payload):
-    self.samples = []
-    for idx, length in enumerate(split_payload["lengths"]):
-      self.samples.append(
-        {
-          "input_ids": split_payload["input_ids"][idx],
-          "raw_labels": split_payload["raw_labels"][idx],
-          "normalized_labels": split_payload["normalized_labels"][idx],
-          "label_mask": split_payload["label_mask"][idx],
-          "length": int(length),
-        }
-      )
-
-  def __len__(self):
-    return len(self.samples)
-
-  def __getitem__(self, idx):
-    return self.samples[idx]
-
-
-class MultiTaskBatchSampler(Sampler):
-  def __init__(self, dataset, batch_size, shuffle, seed, sample_weights=None):
-    self.dataset = dataset
-    self.batch_size = batch_size
-    self.shuffle = shuffle
-    self.seed = seed
-    self.sample_weights = sample_weights
-    self.epoch = 0
-    self.pool_size = batch_size * 50
-    self.num_samples = len(dataset)
-
-  def __iter__(self):
-    if not self.shuffle:
-      indices = list(range(len(self.dataset)))
-      indices.sort(key=lambda idx: self.dataset.samples[idx]["length"])
-      batches = [indices[i : i + self.batch_size] for i in range(0, len(indices), self.batch_size)]
-      return iter(batches)
-
-    generator = torch.Generator()
-    generator.manual_seed(self.seed + self.epoch)
-    self.epoch += 1
-
-    sampled_indices = torch.multinomial(
-      self.sample_weights,
-      self.num_samples,
-      replacement=True,
-      generator=generator,
-    ).tolist()
-
-    batches = []
-    for start in range(0, len(sampled_indices), self.pool_size):
-      pool = sampled_indices[start:start + self.pool_size]
-      pool.sort(key=lambda idx: self.dataset.samples[idx]["length"])
-      batches.extend(pool[i : i + self.batch_size] for i in range(0, len(pool), self.batch_size))
-
-    order = torch.randperm(len(batches), generator=generator).tolist()
-    return iter([batches[idx] for idx in order])
-
-  def __len__(self):
-    return math.ceil(self.num_samples / self.batch_size)
-
-
-class Adapter(nn.Module):
-  def __init__(self, input_dim, adapter_dim=ADAPTER_DIM, dropout_prob=DROPOUT):
-    super().__init__()
-    self.norm = nn.LayerNorm(input_dim)
-    self.down_project = nn.Linear(input_dim, adapter_dim)
-    self.activation = nn.GELU()
-    self.up_project = nn.Linear(adapter_dim, input_dim)
-    self.dropout = nn.Dropout(dropout_prob)
-    self.scale = nn.Parameter(torch.tensor(1e-3))
-    nn.init.normal_(self.down_project.weight, std=1e-3)
-    nn.init.normal_(self.up_project.weight, std=1e-3)
-    nn.init.zeros_(self.up_project.bias)
-
-  def forward(self, x):
-    x_norm = self.norm(x)
-    down = self.down_project(x_norm)
-    activated = self.activation(down)
-    up = self.up_project(activated)
-    dropped = self.dropout(up)
-    return self.scale * dropped
-
-
-class AttnPool(nn.Module):
-  def __init__(self, d_model, hidden=ATTN_POOL_HIDDEN, dropout=DROPOUT):
-    super().__init__()
-    self.proj = nn.Sequential(
-      nn.Linear(d_model, hidden),
-      nn.GELU(),
-      nn.Dropout(dropout),
-    )
-    self.context = nn.Linear(hidden, 1, bias=False)
-
-  def forward(self, x, mask):
-    h = self.proj(x)
-    scores = self.context(h).squeeze(-1)
-    scores = scores.masked_fill(mask == 0, -1e9)
-    attn = torch.softmax(scores, dim=1)
-    return torch.bmm(attn.unsqueeze(1), x).squeeze(1)
-
-
-class MultiTaskAdapterModel(nn.Module):
-  def __init__(self, base_model, task_order, task_output_dims, embed_dim, adapter_dim=ADAPTER_DIM, dropout=DROPOUT):
-    super().__init__()
-    self.base = base_model
-    for p in self.base.parameters():
-      p.requires_grad = False
-    self.adapter = Adapter(embed_dim, adapter_dim, dropout_prob=dropout)
-    self.pool = AttnPool(embed_dim, hidden=ATTN_POOL_HIDDEN, dropout=dropout)
-    self.heads = nn.ModuleDict()
-
-    for task_name in task_order:
-      output_dim = task_output_dims[task_name]
-      self.heads[task_name] = nn.Sequential(
-        nn.LayerNorm(embed_dim),
-        nn.Linear(embed_dim, output_dim),
-      )
-
-  def encode(self, input_ids, attention_mask):
-    if input_ids.dtype != torch.long:
-      input_ids = input_ids.long()
-    if attention_mask.dtype not in (torch.long, torch.int64, torch.bool):
-      attention_mask = attention_mask.long()
-
-    out = self.base(input_ids=input_ids, attention_mask=attention_mask)
-    token_repr = out.last_hidden_state
-    adapted = token_repr + self.adapter(token_repr)
-    return self.pool(adapted, attention_mask)
-
-  def forward(self, input_ids, attention_mask):
-    pooled = self.encode(input_ids, attention_mask)
-    return {task_name: head(pooled) for task_name, head in self.heads.items()}
-
-
-def _unwrap_model(model):
-  return model._orig_mod if hasattr(model, "_orig_mod") else model
-
-
-def _output_dim_from_meta(meta: Dict[str, str], labels: torch.Tensor, mask: torch.Tensor) -> int:
-  if meta["dtype"] == "float":
-    return 1
-
-  if meta["num_classes"] is not None:
-    return int(meta["num_classes"])
-
-  observed = labels[mask]
-  if observed.numel() == 0:
-    raise ValueError(f"Task '{meta['task_name']}' has no observed labels in train split.")
-  return int(observed.max().item()) + 1
 
 
 def _build_classification_loss(meta: Dict[str, str], labels: torch.Tensor, mask: torch.Tensor):
@@ -242,16 +97,6 @@ def _compute_sample_weights(split_payload, task_order):
     for idx, task_name in enumerate(task_order)
   }
   return weights, task_label_counts
-
-
-def _collate_batch(batch, pad_token_id):
-  input_ids = [sample["input_ids"] for sample in batch]
-  padded_ids = nn.utils.rnn.pad_sequence(input_ids, batch_first=True, padding_value=pad_token_id)
-  attention_mask = padded_ids.ne(pad_token_id).long()
-  raw_labels = torch.stack([sample["raw_labels"] for sample in batch])
-  normalized_labels = torch.stack([sample["normalized_labels"] for sample in batch])
-  label_mask = torch.stack([sample["label_mask"] for sample in batch])
-  return padded_ids, attention_mask, raw_labels, normalized_labels, label_mask
 
 
 def _compute_multitask_loss(outputs, raw_labels, normalized_labels, label_mask, task_order, task_metas, criteria):
@@ -328,7 +173,7 @@ train_loader = DataLoader(
     seed=BATCH_SAMPLER_SEED,
     sample_weights=train_sample_weights,
   ),
-  collate_fn=lambda batch: _collate_batch(batch, pad_token_id),
+  collate_fn=lambda batch: collate_multitask_batch(batch, pad_token_id),
   pin_memory=PIN_MEMORY,
 )
 val_loader = DataLoader(
@@ -339,7 +184,7 @@ val_loader = DataLoader(
     shuffle=False,
     seed=BATCH_SAMPLER_SEED,
   ),
-  collate_fn=lambda batch: _collate_batch(batch, pad_token_id),
+  collate_fn=lambda batch: collate_multitask_batch(batch, pad_token_id),
   pin_memory=PIN_MEMORY,
 )
 
@@ -350,7 +195,7 @@ for task_idx, task_name in enumerate(task_order):
   meta = task_metas[task_name]
   train_mask = train_split["label_mask"][:, task_idx]
   train_labels = train_split["raw_labels"][:, task_idx]
-  task_output_dims[task_name] = _output_dim_from_meta(meta, train_labels, train_mask)
+  task_output_dims[task_name] = output_dim_from_meta(meta, train_labels, train_mask)
   if meta["dtype"] != "float":
     criteria[task_name] = _build_classification_loss(meta, train_labels, train_mask)
 
@@ -371,7 +216,7 @@ if COMPILE_MODEL and hasattr(torch, "compile"):
   except Exception as exc:
     print(f"torch.compile unavailable, continuing without compile: {exc}")
 
-model_ref = _unwrap_model(model)
+model_ref = unwrap_model(model)
 optimizer = torch.optim.AdamW(
   [{"params": model_ref.adapter.parameters()}, {"params": model_ref.pool.parameters()}, {"params": model_ref.heads.parameters()}],
   lr=LR,
@@ -496,7 +341,7 @@ for epoch in range(EPOCHS):
   if aggregate_score > best_metric:
     best_metric = aggregate_score
     stale = 0
-    model_ref = _unwrap_model(model)
+    model_ref = unwrap_model(model)
     best_state = {
       "adapter": {k: v.cpu() for k, v in model_ref.adapter.state_dict().items()},
       "pool": {k: v.cpu() for k, v in model_ref.pool.state_dict().items()},
@@ -511,13 +356,13 @@ for epoch in range(EPOCHS):
       break
 
 if best_state is not None:
-  model_ref = _unwrap_model(model)
+  model_ref = unwrap_model(model)
   model_ref.adapter.load_state_dict(best_state["adapter"])
   model_ref.pool.load_state_dict(best_state["pool"])
   for task_name, state_dict in best_state["heads"].items():
     model_ref.heads[task_name].load_state_dict(state_dict)
 
-model_ref = _unwrap_model(model)
+model_ref = unwrap_model(model)
 out_path = "./prostt5_multitask_adapter_best.pt"
 torch.save(
   {

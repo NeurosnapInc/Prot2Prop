@@ -8,7 +8,6 @@ import math
 from collections import Counter
 
 import torch
-import torch.nn as nn
 from sklearn.metrics import (
   accuracy_score,
   balanced_accuracy_score,
@@ -18,140 +17,26 @@ from sklearn.metrics import (
   precision_score,
   recall_score,
 )
-from torch.utils.data import DataLoader, Dataset, Sampler
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import T5EncoderModel
 
-from config import MODEL_NAME, TOKENIZED_DATA_DIR
+from config import ADAPTER_DIM, BATCH_SIZE, DROPOUT, MODEL_NAME, TOKENIZED_DATA_DIR
+from model import (
+  MultiTaskAdapterModel,
+  MultiTaskBatchSampler,
+  MultiTaskSequenceDataset,
+  collate_multitask_batch,
+  output_dim_from_meta,
+)
 
 
 DEFAULT_CHECKPOINT_PATH = "./prostt5_multitask_adapter_best.pt"
 DEFAULT_CACHE_PATH = TOKENIZED_DATA_DIR / "multitask_prostt5_tokens.pt"
-BATCH_SIZE = 32
-ADAPTER_DIM = 64
-DROPOUT = 0.1
-ATTN_POOL_HIDDEN = 256
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 AMP_ENABLED = DEVICE.type == "cuda"
 PIN_MEMORY = DEVICE.type == "cuda"
-
-
-class MultiTaskSequenceDataset(Dataset):
-  def __init__(self, split_payload):
-    self.samples = []
-    for idx, length in enumerate(split_payload["lengths"]):
-      self.samples.append(
-        {
-          "input_ids": split_payload["input_ids"][idx],
-          "raw_labels": split_payload["raw_labels"][idx],
-          "normalized_labels": split_payload["normalized_labels"][idx],
-          "label_mask": split_payload["label_mask"][idx],
-          "length": int(length),
-        }
-      )
-
-  def __len__(self):
-    return len(self.samples)
-
-  def __getitem__(self, idx):
-    return self.samples[idx]
-
-
-class MultiTaskBatchSampler(Sampler):
-  def __init__(self, dataset, batch_size):
-    self.dataset = dataset
-    self.batch_size = batch_size
-
-  def __iter__(self):
-    indices = list(range(len(self.dataset)))
-    indices.sort(key=lambda idx: self.dataset.samples[idx]["length"])
-    batches = [indices[i : i + self.batch_size] for i in range(0, len(indices), self.batch_size)]
-    return iter(batches)
-
-  def __len__(self):
-    return math.ceil(len(self.dataset) / self.batch_size)
-
-
-class Adapter(nn.Module):
-  def __init__(self, input_dim, adapter_dim=ADAPTER_DIM, dropout_prob=DROPOUT):
-    super().__init__()
-    self.norm = nn.LayerNorm(input_dim)
-    self.down_project = nn.Linear(input_dim, adapter_dim)
-    self.activation = nn.GELU()
-    self.up_project = nn.Linear(adapter_dim, input_dim)
-    self.dropout = nn.Dropout(dropout_prob)
-    self.scale = nn.Parameter(torch.tensor(1e-3))
-    nn.init.normal_(self.down_project.weight, std=1e-3)
-    nn.init.normal_(self.up_project.weight, std=1e-3)
-    nn.init.zeros_(self.up_project.bias)
-
-  def forward(self, x):
-    x_norm = self.norm(x)
-    down = self.down_project(x_norm)
-    activated = self.activation(down)
-    up = self.up_project(activated)
-    dropped = self.dropout(up)
-    return self.scale * dropped
-
-
-class AttnPool(nn.Module):
-  def __init__(self, d_model, hidden=ATTN_POOL_HIDDEN, dropout=DROPOUT):
-    super().__init__()
-    self.proj = nn.Sequential(
-      nn.Linear(d_model, hidden),
-      nn.GELU(),
-      nn.Dropout(dropout),
-    )
-    self.context = nn.Linear(hidden, 1, bias=False)
-
-  def forward(self, x, mask):
-    h = self.proj(x)
-    scores = self.context(h).squeeze(-1)
-    scores = scores.masked_fill(mask == 0, -1e9)
-    attn = torch.softmax(scores, dim=1)
-    return torch.bmm(attn.unsqueeze(1), x).squeeze(1)
-
-
-class MultiTaskAdapterModel(nn.Module):
-  def __init__(self, base_model, task_order, task_output_dims, embed_dim, adapter_dim=ADAPTER_DIM, dropout=DROPOUT):
-    super().__init__()
-    self.base = base_model
-    self.adapter = Adapter(embed_dim, adapter_dim, dropout_prob=dropout)
-    self.pool = AttnPool(embed_dim, hidden=ATTN_POOL_HIDDEN, dropout=dropout)
-    self.heads = nn.ModuleDict()
-
-    for task_name in task_order:
-      output_dim = task_output_dims[task_name]
-      self.heads[task_name] = nn.Sequential(
-        nn.LayerNorm(embed_dim),
-        nn.Linear(embed_dim, output_dim),
-      )
-
-  def encode(self, input_ids, attention_mask):
-    if input_ids.dtype != torch.long:
-      input_ids = input_ids.long()
-    if attention_mask.dtype not in (torch.long, torch.int64, torch.bool):
-      attention_mask = attention_mask.long()
-
-    out = self.base(input_ids=input_ids, attention_mask=attention_mask)
-    token_repr = out.last_hidden_state
-    adapted = token_repr + self.adapter(token_repr)
-    return self.pool(adapted, attention_mask)
-
-  def forward(self, input_ids, attention_mask):
-    pooled = self.encode(input_ids, attention_mask)
-    return {task_name: head(pooled) for task_name, head in self.heads.items()}
-
-
-def _collate_batch(batch, pad_token_id):
-  input_ids = [sample["input_ids"] for sample in batch]
-  padded_ids = nn.utils.rnn.pad_sequence(input_ids, batch_first=True, padding_value=pad_token_id)
-  attention_mask = padded_ids.ne(pad_token_id).long()
-  raw_labels = torch.stack([sample["raw_labels"] for sample in batch])
-  normalized_labels = torch.stack([sample["normalized_labels"] for sample in batch])
-  label_mask = torch.stack([sample["label_mask"] for sample in batch])
-  return padded_ids, attention_mask, raw_labels, normalized_labels, label_mask
 
 
 def _format_float(value):
@@ -176,19 +61,6 @@ def _format_table(title, columns, rows):
   lines = [title, render_row(columns), divider]
   lines.extend(render_row(row) for row in rows)
   return "\n".join(lines) + "\n"
-
-
-def _output_dim_from_meta(meta, labels, mask):
-  if meta["dtype"] == "float":
-    return 1
-
-  if meta["num_classes"] is not None:
-    return int(meta["num_classes"])
-
-  observed = labels[mask]
-  if observed.numel() == 0:
-    raise ValueError(f"Task '{meta['task_name']}' has no observed labels in train split.")
-  return int(observed.max().item()) + 1
 
 
 def _label_ratio_string(labels):
@@ -293,7 +165,7 @@ def main():
   loader = DataLoader(
     dataset,
     batch_sampler=MultiTaskBatchSampler(dataset, args.batch_size),
-    collate_fn=lambda batch: _collate_batch(batch, pad_token_id),
+    collate_fn=lambda batch: collate_multitask_batch(batch, pad_token_id),
     pin_memory=PIN_MEMORY,
   )
 
@@ -302,7 +174,7 @@ def main():
     meta = task_metas[task_name]
     train_mask = train_split["label_mask"][:, task_idx]
     train_labels = train_split["raw_labels"][:, task_idx]
-    task_output_dims[task_name] = _output_dim_from_meta(meta, train_labels, train_mask)
+    task_output_dims[task_name] = output_dim_from_meta(meta, train_labels, train_mask)
 
   model_name = checkpoint["config"].get("model_name", MODEL_NAME)
   base_model = T5EncoderModel.from_pretrained(model_name).to(DEVICE)
