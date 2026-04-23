@@ -105,7 +105,27 @@ Epoch 8/10: 100%|█████████████████████
 Train Loss: 0.9588 | Val aggregation_propensity:MAE=0.8156 binding_affinity:MAE=7664.6571 enzymatic_activity:MAE=0.4539 expression_yield:MAE=0.6896 folding_stability:MAE=0.8291 material_production:F1=0.7948 membrane_topology:MAE=1.1935 solubility:F1=0.7346 temperature_stability:MAE=0.2118 thermostability:MAE=1.8085
 Epoch 9/10: 100%|██████████████████████| 59052/59052 [7:46:24<00:00,  2.11it/s]
 Train Loss: 1.3263 | Val aggregation_propensity:MAE=0.8555 binding_affinity:MAE=6034.2138 enzymatic_activity:MAE=0.4443 expression_yield:MAE=0.6880 folding_stability:MAE=0.8157 material_production:F1=0.8226 membrane_topology:MAE=1.1865 solubility:F1=0.7365 temperature_stability:MAE=0.2097 thermostability:MAE=1.6818
-Epoch 10/10: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 59052/59052 [7:45:42<00:00,  2.11it/s]
+Epoch 10/10: 100%|██████████████████████| 59052/59052 [7:45:42<00:00,  2.11it/s]
 Train Loss: 0.9175 | Val aggregation_propensity:MAE=0.8252 binding_affinity:MAE=6367.3902 enzymatic_activity:MAE=0.4654 expression_yield:MAE=0.6842 folding_stability:MAE=0.8149 material_production:F1=0.8118 membrane_topology:MAE=1.1776 solubility:F1=0.7369 temperature_stability:MAE=0.2082 thermostability:MAE=1.6443
 Saved best shared adapter+heads -> ./prostt5_multitask_adapter_best.pt
+```
+
+### New version with better dataset:
+```
+Epoch 1/10: 100%|██████████████████████| 19234/19234 [2:04:15<00:00,  2.58it/s]
+Train Loss: 0.6494 | Val aggregation_propensity:MAE=1.7844 RMSE=2.2044 expression_yield:MAE=0.6525 RMSE=0.9819 folding_stability:MAE=0.8009 RMSE=1.0129 material_production:ACC=0.7610 F1=0.8164 solubility:ACC=0.7188 F1=0.7088 temperature_stability:ACC=0.8865 F1=0.8918 temperature_stability_abs:MAE=2.0627 RMSE=2.6679
+Epoch 2/10: 100%|██████████████████████| 19234/19234 [2:02:24<00:00,  2.62it/s]
+Train Loss: 0.5563 | Val aggregation_propensity:MAE=1.6439 RMSE=2.0353 expression_yield:MAE=0.6809 RMSE=1.0071 folding_stability:MAE=1.0021 RMSE=1.2270 material_production:ACC=0.7645 F1=0.8175 solubility:ACC=0.7296 F1=0.7237 temperature_stability:ACC=0.8987 F1=0.9025 temperature_stability_abs:MAE=2.0389 RMSE=2.6225
+Epoch 3/10: 100%|██████████████████████| 19234/19234 [2:02:32<00:00,  2.62it/s]
+Train Loss: 0.5324 | Val aggregation_propensity:MAE=1.4617 RMSE=1.8305 expression_yield:MAE=0.7139 RMSE=1.0323 folding_stability:MAE=0.8061 RMSE=1.0178 material_production:ACC=0.7722 F1=0.8250 solubility:ACC=0.7552 F1=0.7264 temperature_stability:ACC=0.9133 F1=0.9104 temperature_stability_abs:MAE=2.0108 RMSE=2.5867
+Epoch 4/10: 100%|██████████████████████| 19234/19234 [2:02:42<00:00,  2.61it/s]
+Train Loss: 0.5157 | Val aggregation_propensity:MAE=1.2533 RMSE=1.6132 expression_yield:MAE=0.7097 RMSE=1.0429 folding_stability:MAE=0.8241 RMSE=1.0363 material_production:ACC=0.7704 F1=0.8222 solubility:ACC=0.7546 F1=0.7315 temperature_stability:ACC=0.9167 F1=0.9147 temperature_stability_abs:MAE=2.2741 RMSE=2.9710
+Epoch 5/10: 100%|██████████████████████| 19234/19234 [2:03:10<00:00,  2.60it/s]
+Train Loss: 0.4942 | Val aggregation_propensity:MAE=1.0490 RMSE=1.3967 expression_yield:MAE=0.7557 RMSE=1.0712 folding_stability:MAE=0.9029 RMSE=1.1143 material_production:ACC=0.7572 F1=0.8066 solubility:ACC=0.7283 F1=0.7262 temperature_stability:ACC=0.8952 F1=0.9014 temperature_stability_abs:MAE=2.0777 RMSE=2.7313
+Epoch 6/10: 100%|██████████████████████| 19234/19234 [2:03:00<00:00,  2.61it/s]
+Train Loss: 0.4750 | Val aggregation_propensity:MAE=1.2680 RMSE=1.6270 expression_yield:MAE=0.7610 RMSE=1.0689 folding_stability:MAE=0.8966 RMSE=1.1043 material_production:ACC=0.7694 F1=0.8206 solubility:ACC=0.7391 F1=0.7293 temperature_stability:ACC=0.8992 F1=0.9047 temperature_stability_abs:MAE=2.3254 RMSE=3.0082
+Epoch 7/10: 100%|██████████████████████| 19234/19234 [2:02:45<00:00,  2.61it/s]
+Train Loss: 0.4569 | Val aggregation_propensity:MAE=1.2822 RMSE=1.6492 expression_yield:MAE=0.7354 RMSE=1.0632 folding_stability:MAE=0.8455 RMSE=1.0592 material_production:ACC=0.7662 F1=0.8165 solubility:ACC=0.7476 F1=0.7321 temperature_stability:ACC=0.9098 F1=0.9129 temperature_stability_abs:MAE=2.2975 RMSE=2.9705
+Epoch 8/10: 100%|██████████████████████| 19234/19234 [2:03:14<00:00,  2.60it/s]
+Train Loss: 0.4440 | Val aggregation_propensity:MAE=1.1890 RMSE=1.5380 expression_yield:MAE=0.7119 RMSE=1.0359 folding_stability:MAE=0.9509 RMSE=1.1577 material_production:ACC=0.7802 F1=0.8325 solubility:ACC=0.7571 F1=0.7348 temperature_stability:ACC=0.9181 F1=0.9200 temperature_stability_abs:MAE=2.3290 RMSE=2.9995
 ```
