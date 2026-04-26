@@ -33,21 +33,50 @@ class MultiTaskSequenceDataset(Dataset):
 
 
 class MultiTaskBatchSampler(Sampler):
-  def __init__(self, dataset, batch_size, shuffle=False, seed=0, sample_weights=None):
+  def __init__(self, dataset, batch_size, shuffle=False, seed=0, sample_weights=None, max_tokens_per_batch=None):
     self.dataset = dataset
     self.batch_size = batch_size
     self.shuffle = shuffle
     self.seed = seed
     self.sample_weights = sample_weights
+    self.max_tokens_per_batch = max_tokens_per_batch
     self.epoch = 0
     self.pool_size = batch_size * 50
     self.num_samples = len(dataset)
+
+  def _pack_batches(self, indices):
+    if self.max_tokens_per_batch is None:
+      return [indices[i : i + self.batch_size] for i in range(0, len(indices), self.batch_size)]
+
+    batches = []
+    current_batch = []
+    current_max_len = 0
+
+    for idx in indices:
+      sample_len = self.dataset.samples[idx]["length"]
+      proposed_max_len = max(current_max_len, sample_len)
+      proposed_batch_size = len(current_batch) + 1
+      would_exceed_tokens = proposed_max_len * proposed_batch_size > self.max_tokens_per_batch
+
+      if current_batch and (would_exceed_tokens or len(current_batch) >= self.batch_size):
+        batches.append(current_batch)
+        current_batch = []
+        current_max_len = 0
+        proposed_max_len = sample_len
+
+      current_batch.append(idx)
+      current_max_len = proposed_max_len
+
+    if current_batch:
+      batches.append(current_batch)
+
+    return batches
 
   def __iter__(self):
     if not self.shuffle:
       indices = list(range(len(self.dataset)))
       indices.sort(key=lambda idx: self.dataset.samples[idx]["length"])
-      batches = [indices[i : i + self.batch_size] for i in range(0, len(indices), self.batch_size)]
+      batches = self._pack_batches(indices)
       return iter(batches)
 
     generator = torch.Generator()
@@ -65,7 +94,7 @@ class MultiTaskBatchSampler(Sampler):
     for start in range(0, len(sampled_indices), self.pool_size):
       pool = sampled_indices[start:start + self.pool_size]
       pool.sort(key=lambda idx: self.dataset.samples[idx]["length"])
-      batches.extend(pool[i : i + self.batch_size] for i in range(0, len(pool), self.batch_size))
+      batches.extend(self._pack_batches(pool))
 
     order = torch.randperm(len(batches), generator=generator).tolist()
     return iter([batches[idx] for idx in order])

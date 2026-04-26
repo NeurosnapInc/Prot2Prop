@@ -51,3 +51,5 @@ PATIENCE = 3
 BATCH_SAMPLER_SEED = 42
 # Path to the pre-tokenized multitask cache consumed by training.
 TRAIN_CACHE_PATH = TOKENIZED_DATA_DIR / "multitask_prostt5_tokens.pt"
+# Maximum padded tokens allowed in evaluation batches to avoid very long-sequence OOMs.
+EVAL_MAX_TOKENS_PER_BATCH = 32768

@@ -21,7 +21,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import T5EncoderModel
 
-from config import ADAPTER_DIM, BATCH_SIZE, DROPOUT, MODEL_NAME, TOKENIZED_DATA_DIR
+from config import ADAPTER_DIM, BATCH_SIZE, DROPOUT, EVAL_MAX_TOKENS_PER_BATCH, MODEL_NAME, TOKENIZED_DATA_DIR
 from model import (
   MultiTaskAdapterModel,
   MultiTaskBatchSampler,
@@ -164,7 +164,11 @@ def main():
   dataset = MultiTaskSequenceDataset(split_payload)
   loader = DataLoader(
     dataset,
-    batch_sampler=MultiTaskBatchSampler(dataset, args.batch_size),
+    batch_sampler=MultiTaskBatchSampler(
+      dataset,
+      args.batch_size,
+      max_tokens_per_batch=EVAL_MAX_TOKENS_PER_BATCH,
+    ),
     collate_fn=lambda batch: collate_multitask_batch(batch, pad_token_id),
     pin_memory=PIN_MEMORY,
   )
