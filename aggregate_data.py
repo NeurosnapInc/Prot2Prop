@@ -178,17 +178,17 @@ TASKS: List[TaskSpec] = [
   #   sequence_col="mutated_sequence",
   #   label_col="DMS_score",
   # ),
-  TaskSpec(
-    task_name="temperature_stability_abs",
-    dataset="ProteinGym/thermostability",
-    dtype="float",
-    head_type="sequence_regression",
-    num_classes=None,
-    loss="mse",
-    label_semantics="absolute_measurement",
-    sequence_col="mutated_sequence",
-    label_col="DMS_score",
-  ),
+  # TaskSpec(  # TODO: Limited sample size so probably not worth including for now
+  #   task_name="temperature_stability_abs",
+  #   dataset="ProteinGym/thermostability",
+  #   dtype="float",
+  #   head_type="sequence_regression",
+  #   num_classes=None,
+  #   loss="mse",
+  #   label_semantics="absolute_measurement",
+  #   sequence_col="mutated_sequence",
+  #   label_col="DMS_score",
+  # ),
 ]
 
 
