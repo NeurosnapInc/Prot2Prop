@@ -10,13 +10,16 @@ from collections import Counter
 import torch
 from sklearn.metrics import (
   accuracy_score,
+  average_precision_score,
   balanced_accuracy_score,
   f1_score,
   mean_absolute_error,
   mean_squared_error,
   precision_score,
   recall_score,
+  roc_auc_score,
 )
+from sklearn.preprocessing import label_binarize
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import T5EncoderModel
@@ -73,9 +76,9 @@ def _label_ratio_string(labels):
   return " ".join(parts)
 
 
-def _classification_report(labels, preds, dtype):
+def _classification_report(labels, preds, scores, dtype):
   average = "binary" if dtype == "bool" else "macro"
-  return {
+  report = {
     "acc": accuracy_score(labels, preds),
     "balanced_acc": balanced_accuracy_score(labels, preds),
     "precision": precision_score(labels, preds, average=average, zero_division=0),
@@ -84,6 +87,22 @@ def _classification_report(labels, preds, dtype):
     "label_ratio": _label_ratio_string(labels),
     "pred_ratio": _label_ratio_string(preds),
   }
+
+  try:
+    if dtype == "bool":
+      positive_scores = scores
+      report["auroc"] = roc_auc_score(labels, positive_scores)
+      report["auprc"] = average_precision_score(labels, positive_scores)
+    else:
+      classes = sorted(set(labels))
+      labels_binarized = label_binarize(labels, classes=classes)
+      report["auroc"] = roc_auc_score(labels, scores, multi_class="ovr", average="macro")
+      report["auprc"] = average_precision_score(labels_binarized, scores, average="macro")
+  except ValueError:
+    report["auroc"] = None
+    report["auprc"] = None
+
+  return report
 
 
 def _regression_report(labels, preds):
@@ -205,6 +224,7 @@ def main():
     task_name: {
       "labels": [],
       "preds": [],
+      "scores": [],
     }
     for task_name in task_order
   }
@@ -234,10 +254,16 @@ def main():
           predictions[task_name]["preds"].extend(preds.cpu().tolist())
           predictions[task_name]["labels"].extend(labels.cpu().tolist())
         else:
-          preds = outputs[task_name][mask].argmax(dim=1)
+          logits = outputs[task_name][mask].float()
+          probs = torch.softmax(logits, dim=1)
+          preds = probs.argmax(dim=1)
           labels = raw_labels[mask, task_idx].long()
           predictions[task_name]["preds"].extend(preds.cpu().tolist())
           predictions[task_name]["labels"].extend(labels.cpu().tolist())
+          if meta["dtype"] == "bool":
+            predictions[task_name]["scores"].extend(probs[:, 1].cpu().tolist())
+          else:
+            predictions[task_name]["scores"].extend(probs.cpu().tolist())
 
   print()
   print(f"Dataset size ({args.split}): {len(dataset)} sequences")
@@ -256,7 +282,7 @@ def main():
     meta = task_metas[task_name]
     labeled_count = len(labels)
     if meta["dtype"] in ("bool", "int"):
-      report = _classification_report(labels, preds, meta["dtype"])
+      report = _classification_report(labels, preds, predictions[task_name]["scores"], meta["dtype"])
       classification_rows.append(
         [
           task_name,
@@ -267,6 +293,8 @@ def main():
           _format_float(report["precision"]),
           _format_float(report["recall"]),
           _format_float(report["f1"]),
+          _format_float(report["auroc"]),
+          _format_float(report["auprc"]),
           report["label_ratio"],
           report["pred_ratio"],
         ]
@@ -290,7 +318,7 @@ def main():
   print(
     _format_table(
       "Classification Tasks",
-      ["task", "dtype", "n", "acc", "bal_acc", "precision", "recall", "f1", "label_ratio", "pred_ratio"],
+      ["task", "dtype", "n", "acc", "bal_acc", "precision", "recall", "f1", "auroc", "auprc", "label_ratio", "pred_ratio"],
       classification_rows,
     )
   )
