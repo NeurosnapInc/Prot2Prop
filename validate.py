@@ -24,7 +24,16 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import T5EncoderModel
 
-from config import ADAPTER_DIM, BATCH_SIZE, DROPOUT, EVAL_MAX_TOKENS_PER_BATCH, MODEL_NAME, TOKENIZED_DATA_DIR
+from config import (
+  ADAPTER_DIM,
+  BATCH_SIZE,
+  CLASSIFICATION_HEAD_HIDDEN,
+  DROPOUT,
+  EVAL_MAX_TOKENS_PER_BATCH,
+  MODEL_NAME,
+  REGRESSION_HEAD_HIDDEN,
+  TOKENIZED_DATA_DIR,
+)
 from model import (
   MultiTaskAdapterModel,
   MultiTaskBatchSampler,
@@ -200,6 +209,14 @@ def main():
     task_output_dims[task_name] = output_dim_from_meta(meta, train_labels, train_mask)
 
   model_name = checkpoint["config"].get("model_name", MODEL_NAME)
+  classification_head_hidden = checkpoint["config"].get("classification_head_hidden", 0)
+  regression_head_hidden = checkpoint["config"].get("regression_head_hidden", 0)
+  if classification_head_hidden == 0 and regression_head_hidden == 0:
+    classification_head_hidden = 0
+    regression_head_hidden = 0
+  else:
+    classification_head_hidden = checkpoint["config"].get("classification_head_hidden", CLASSIFICATION_HEAD_HIDDEN)
+    regression_head_hidden = checkpoint["config"].get("regression_head_hidden", REGRESSION_HEAD_HIDDEN)
   base_model = T5EncoderModel.from_pretrained(model_name).to(DEVICE)
   if DEVICE.type == "cuda":
     base_model.bfloat16()
@@ -210,8 +227,11 @@ def main():
     task_order,
     task_output_dims,
     embed_dim=embed_dim,
+    task_metas=task_metas,
     adapter_dim=checkpoint["config"].get("adapter_dim", ADAPTER_DIM),
     dropout=checkpoint["config"].get("dropout", DROPOUT),
+    classification_head_hidden=classification_head_hidden,
+    regression_head_hidden=regression_head_hidden,
   ).to(DEVICE)
 
   model.adapter.load_state_dict(checkpoint["adapter_state_dict"])

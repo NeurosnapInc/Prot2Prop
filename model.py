@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, Sampler
 
-from config import ADAPTER_DIM, ATTN_POOL_HIDDEN, DROPOUT
+from config import ADAPTER_DIM, ATTN_POOL_HIDDEN, CLASSIFICATION_HEAD_HIDDEN, DROPOUT, REGRESSION_HEAD_HIDDEN
 
 
 class MultiTaskSequenceDataset(Dataset):
@@ -143,8 +143,40 @@ class AttnPool(nn.Module):
     return torch.bmm(attn.unsqueeze(1), x).squeeze(1)
 
 
+class TaskHead(nn.Module):
+  def __init__(self, input_dim, output_dim, hidden_dim, dropout=DROPOUT):
+    super().__init__()
+    if hidden_dim and hidden_dim > 0:
+      self.net = nn.Sequential(
+        nn.LayerNorm(input_dim),
+        nn.Linear(input_dim, hidden_dim),
+        nn.GELU(),
+        nn.Dropout(dropout),
+        nn.Linear(hidden_dim, output_dim),
+      )
+    else:
+      self.net = nn.Sequential(
+        nn.LayerNorm(input_dim),
+        nn.Linear(input_dim, output_dim),
+      )
+
+  def forward(self, x):
+    return self.net(x)
+
+
 class MultiTaskAdapterModel(nn.Module):
-  def __init__(self, base_model, task_order, task_output_dims, embed_dim, adapter_dim=ADAPTER_DIM, dropout=DROPOUT):
+  def __init__(
+    self,
+    base_model,
+    task_order,
+    task_output_dims,
+    embed_dim,
+    task_metas=None,
+    adapter_dim=ADAPTER_DIM,
+    dropout=DROPOUT,
+    classification_head_hidden=CLASSIFICATION_HEAD_HIDDEN,
+    regression_head_hidden=REGRESSION_HEAD_HIDDEN,
+  ):
     super().__init__()
     self.base = base_model
     for param in self.base.parameters():
@@ -155,9 +187,13 @@ class MultiTaskAdapterModel(nn.Module):
 
     for task_name in task_order:
       output_dim = task_output_dims[task_name]
-      self.heads[task_name] = nn.Sequential(
-        nn.LayerNorm(embed_dim),
-        nn.Linear(embed_dim, output_dim),
+      meta = (task_metas or {}).get(task_name, {})
+      hidden_dim = regression_head_hidden if meta.get("dtype") == "float" else classification_head_hidden
+      self.heads[task_name] = TaskHead(
+        embed_dim,
+        output_dim,
+        hidden_dim=hidden_dim,
+        dropout=dropout,
       )
 
   def encode(self, input_ids, attention_mask):

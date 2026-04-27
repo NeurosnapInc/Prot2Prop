@@ -41,6 +41,10 @@ ADAPTER_DIM = 64
 DROPOUT = 0.1
 # Hidden dimension for the attention pooling MLP.
 ATTN_POOL_HIDDEN = 256
+# Hidden dimension for classification task heads.
+CLASSIFICATION_HEAD_HIDDEN = 256
+# Hidden dimension for regression task heads.
+REGRESSION_HEAD_HIDDEN = 512
 # L2-style regularization strength for AdamW.
 WEIGHT_DECAY = 1e-2
 # Fraction of total training steps used for learning-rate warmup.
