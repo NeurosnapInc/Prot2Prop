@@ -53,6 +53,9 @@ USE_FUSED_ADAMW = DEVICE.type == "cuda"
 def _build_classification_loss(meta: Dict[str, str], labels: torch.Tensor, mask: torch.Tensor):
   observed = labels[mask].long()
   if meta["dtype"] == "bool" and (meta["num_classes"] in (None, 2)):
+    # Binary tasks are imbalanced enough that an unweighted loss tends to overpredict
+    # the majority class. Use inverse-frequency class weights computed from the train
+    # split only so validation remains a fair comparison.
     counts = Counter(int(x) for x in observed.tolist())
     n0, n1 = counts.get(0, 0), counts.get(1, 0)
     total = n0 + n1
@@ -90,6 +93,8 @@ def _compute_sample_weights(split_payload, task_order):
     if present.numel() == 0:
       sample_weights.append(1.0)
       continue
+    # Upweight sequences that contribute labels to rarer tasks so training batches do
+    # not get dominated by the most densely labeled objectives.
     sample_weights.append(float(inv_task_counts[present].mean().item()))
 
   weights = torch.tensor(sample_weights, dtype=torch.double)
@@ -113,6 +118,8 @@ def _compute_multitask_loss(outputs, raw_labels, normalized_labels, label_mask, 
     preds = outputs[task_name][mask]
     meta = task_metas[task_name]
     if meta["dtype"] == "float":
+      # Regression heads train on normalized labels so tasks with different physical
+      # scales contribute comparable gradients to the shared representation.
       targets = normalized_labels[mask, task_idx]
       if (meta["loss"] or "").lower() in ("mae", "l1"):
         task_loss = F.l1_loss(preds.squeeze(-1), targets)
@@ -186,6 +193,8 @@ val_loader = DataLoader(
     BATCH_SIZE,
     shuffle=False,
     seed=BATCH_SAMPLER_SEED,
+    # Validation batches are deterministic and token-capped because the longest few
+    # sequences can otherwise create pathological memory spikes.
     max_tokens_per_batch=EVAL_MAX_TOKENS_PER_BATCH,
   ),
   collate_fn=lambda batch: collate_multitask_batch(batch, pad_token_id),
@@ -230,6 +239,8 @@ optimizer = torch.optim.AdamW(
   weight_decay=WEIGHT_DECAY,
   fused=USE_FUSED_ADAMW,
 )
+# Clip only the trainable modules. The encoder is frozen, so gradients there should
+# stay empty; clipping the adapter/pool/heads keeps unstable task batches in check.
 trainable_params = list(model_ref.adapter.parameters()) + list(model_ref.pool.parameters()) + list(model_ref.heads.parameters())
 
 num_training_steps = len(train_loader) * EPOCHS
@@ -316,6 +327,8 @@ for epoch in range(EPOCHS):
 
     metric_name, metric_value, report = _metric_from_preds(values["labels"], values["preds"], task_metas[task_name]["dtype"])
     if task_metas[task_name]["dtype"] == "float":
+      # Early stopping uses normalized MAE for regression so a task with larger raw
+      # units does not dominate checkpoint selection purely because of its scale.
       normalized_mae = mean_absolute_error(values["normalized_labels"], values["normalized_preds"])
       selection_metric = -normalized_mae
       report["normalized_mae"] = normalized_mae
@@ -349,6 +362,8 @@ for epoch in range(EPOCHS):
     best_metric = aggregate_score
     stale = 0
     model_ref = unwrap_model(model)
+    # Keep an in-memory copy of the best adapter/pool/head state rather than relying
+    # on the last epoch. Later epochs often help some tasks while hurting others.
     best_state = {
       "adapter": {k: v.cpu() for k, v in model_ref.adapter.state_dict().items()},
       "pool": {k: v.cpu() for k, v in model_ref.pool.state_dict().items()},

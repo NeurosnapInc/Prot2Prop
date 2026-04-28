@@ -87,6 +87,9 @@ def _label_ratio_string(labels):
 
 def _classification_report(labels, preds, scores, dtype):
   average = "binary" if dtype == "bool" else "macro"
+  # This helper intentionally reports both thresholded metrics (acc/f1/etc.) and
+  # threshold-free ranking metrics (AUROC/AUPRC). The gap between them is often the
+  # clearest signal that threshold tuning could still recover performance.
   report = {
     "acc": accuracy_score(labels, preds),
     "balanced_acc": balanced_accuracy_score(labels, preds),
@@ -115,6 +118,8 @@ def _classification_report(labels, preds, scores, dtype):
 
 
 def _regression_report(labels, preds):
+  # Regression reporting includes both error terms and Spearman because several of
+  # these tasks rank examples better than they calibrate exact values.
   labels_tensor = torch.tensor(labels, dtype=torch.float)
   preds_tensor = torch.tensor(preds, dtype=torch.float)
   return {
@@ -390,6 +395,8 @@ def main():
   classification_head_hidden = checkpoint["config"].get("classification_head_hidden", 0)
   regression_head_hidden = checkpoint["config"].get("regression_head_hidden", 0)
   if classification_head_hidden == 0 and regression_head_hidden == 0:
+    # Older checkpoints were saved before the MLP task heads were introduced. In that
+    # case, force legacy head reconstruction so state dict loading still works.
     classification_head_hidden = 0
     regression_head_hidden = 0
   else:
@@ -454,6 +461,8 @@ def main():
         else:
           logits = outputs[task_name][mask].float()
           probs = torch.softmax(logits, dim=1)
+          # Save probabilities, not just argmax labels, so later reporting can compute
+          # AUROC/AUPRC and run post-hoc threshold tuning from the same pass.
           preds = probs.argmax(dim=1)
           labels = raw_labels[mask, task_idx].long()
           predictions[task_name]["preds"].extend(preds.cpu().tolist())
