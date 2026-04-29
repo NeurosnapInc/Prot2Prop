@@ -87,45 +87,94 @@ Train Loss: 0.5194 | Val Acc: 0.7224 F1: 0.7146
 
 ### New version initial run
 ```sh
-Epoch 1/10: 100%|██████████████████████| 59052/59052 [7:48:46<00:00,  2.10it/s]
-Train Loss: 1.4744 | Val aggregation_propensity:MAE=1.9031 binding_affinity:MAE=52497.9969 enzymatic_activity:MAE=0.6969 expression_yield:MAE=0.7056 folding_stability:MAE=0.8563 material_production:F1=0.8526 membrane_topology:MAE=0.9221 solubility:F1=0.7203 temperature_stability:MAE=0.2316 thermostability:MAE=2.1242
-Epoch 2/10: 100%|██████████████████████| 59052/59052 [7:46:51<00:00,  2.11it/s]
-Train Loss: 1.2045 | Val aggregation_propensity:MAE=1.1719 binding_affinity:MAE=17223.4967 enzymatic_activity:MAE=0.6721 expression_yield:MAE=0.8159 folding_stability:MAE=0.8227 material_production:F1=0.7900 membrane_topology:MAE=1.1418 solubility:F1=0.7318 temperature_stability:MAE=0.2409 thermostability:MAE=2.6384
-Epoch 3/10: 100%|██████████████████████| 59052/59052 [7:47:38<00:00,  2.10it/s]
-Train Loss: 0.9002 | Val aggregation_propensity:MAE=1.1414 binding_affinity:MAE=16454.1588 enzymatic_activity:MAE=0.4842 expression_yield:MAE=0.7670 folding_stability:MAE=0.9427 material_production:F1=0.8111 membrane_topology:MAE=0.9959 solubility:F1=0.7294 temperature_stability:MAE=0.2295 thermostability:MAE=2.0764
-Epoch 4/10: 100%|██████████████████████| 59052/59052 [7:49:46<00:00,  2.10it/s]
-Train Loss: 0.8173 | Val aggregation_propensity:MAE=0.8857 binding_affinity:MAE=7964.2868 enzymatic_activity:MAE=0.4536 expression_yield:MAE=0.6968 folding_stability:MAE=0.7595 material_production:F1=0.7719 membrane_topology:MAE=1.1293 solubility:F1=0.7231 temperature_stability:MAE=0.2167 thermostability:MAE=1.8650
-Epoch 5/10: 100%|██████████████████████| 59052/59052 [7:46:53<00:00,  2.11it/s]
-Train Loss: 1.2787 | Val aggregation_propensity:MAE=0.8390 binding_affinity:MAE=9205.2723 enzymatic_activity:MAE=0.5042 expression_yield:MAE=0.7088 folding_stability:MAE=0.8430 material_production:F1=0.7905 membrane_topology:MAE=0.9927 solubility:F1=0.7274 temperature_stability:MAE=0.2203 thermostability:MAE=1.9772
 Epoch 6/10: 100%|██████████████████████| 59052/59052 [7:47:30<00:00,  2.11it/s]
 Train Loss: 0.7318 | Val aggregation_propensity:MAE=0.8527 binding_affinity:MAE=7894.5411 enzymatic_activity:MAE=0.4782 expression_yield:MAE=0.7306 folding_stability:MAE=0.7612 material_production:F1=0.8043 membrane_topology:MAE=1.2854 solubility:F1=0.7377 temperature_stability:MAE=0.2187 thermostability:MAE=1.8387
-Epoch 7/10: 100%|██████████████████████| 59052/59052 [7:48:47<00:00,  2.10it/s]
-Train Loss: 0.8364 | Val aggregation_propensity:MAE=0.8654 binding_affinity:MAE=7049.0198 enzymatic_activity:MAE=0.4496 expression_yield:MAE=0.7309 folding_stability:MAE=0.8069 material_production:F1=0.8228 membrane_topology:MAE=1.1577 solubility:F1=0.7330 temperature_stability:MAE=0.2120 thermostability:MAE=1.8011
-Epoch 8/10: 100%|██████████████████████| 59052/59052 [7:45:15<00:00,  2.12it/s]
-Train Loss: 0.9588 | Val aggregation_propensity:MAE=0.8156 binding_affinity:MAE=7664.6571 enzymatic_activity:MAE=0.4539 expression_yield:MAE=0.6896 folding_stability:MAE=0.8291 material_production:F1=0.7948 membrane_topology:MAE=1.1935 solubility:F1=0.7346 temperature_stability:MAE=0.2118 thermostability:MAE=1.8085
-Epoch 9/10: 100%|██████████████████████| 59052/59052 [7:46:24<00:00,  2.11it/s]
-Train Loss: 1.3263 | Val aggregation_propensity:MAE=0.8555 binding_affinity:MAE=6034.2138 enzymatic_activity:MAE=0.4443 expression_yield:MAE=0.6880 folding_stability:MAE=0.8157 material_production:F1=0.8226 membrane_topology:MAE=1.1865 solubility:F1=0.7365 temperature_stability:MAE=0.2097 thermostability:MAE=1.6818
-Epoch 10/10: 100%|██████████████████████| 59052/59052 [7:45:42<00:00,  2.11it/s]
-Train Loss: 0.9175 | Val aggregation_propensity:MAE=0.8252 binding_affinity:MAE=6367.3902 enzymatic_activity:MAE=0.4654 expression_yield:MAE=0.6842 folding_stability:MAE=0.8149 material_production:F1=0.8118 membrane_topology:MAE=1.1776 solubility:F1=0.7369 temperature_stability:MAE=0.2082 thermostability:MAE=1.6443
-Saved best shared adapter+heads -> ./prostt5_multitask_adapter_best.pt
 ```
 
 ### New version with better dataset:
 ```
-Epoch 1/10: 100%|██████████████████████| 19234/19234 [2:04:15<00:00,  2.58it/s]
-Train Loss: 0.6494 | Val aggregation_propensity:MAE=1.7844 RMSE=2.2044 expression_yield:MAE=0.6525 RMSE=0.9819 folding_stability:MAE=0.8009 RMSE=1.0129 material_production:ACC=0.7610 F1=0.8164 solubility:ACC=0.7188 F1=0.7088 temperature_stability:ACC=0.8865 F1=0.8918 temperature_stability_abs:MAE=2.0627 RMSE=2.6679
-Epoch 2/10: 100%|██████████████████████| 19234/19234 [2:02:24<00:00,  2.62it/s]
-Train Loss: 0.5563 | Val aggregation_propensity:MAE=1.6439 RMSE=2.0353 expression_yield:MAE=0.6809 RMSE=1.0071 folding_stability:MAE=1.0021 RMSE=1.2270 material_production:ACC=0.7645 F1=0.8175 solubility:ACC=0.7296 F1=0.7237 temperature_stability:ACC=0.8987 F1=0.9025 temperature_stability_abs:MAE=2.0389 RMSE=2.6225
-Epoch 3/10: 100%|██████████████████████| 19234/19234 [2:02:32<00:00,  2.62it/s]
-Train Loss: 0.5324 | Val aggregation_propensity:MAE=1.4617 RMSE=1.8305 expression_yield:MAE=0.7139 RMSE=1.0323 folding_stability:MAE=0.8061 RMSE=1.0178 material_production:ACC=0.7722 F1=0.8250 solubility:ACC=0.7552 F1=0.7264 temperature_stability:ACC=0.9133 F1=0.9104 temperature_stability_abs:MAE=2.0108 RMSE=2.5867
-Epoch 4/10: 100%|██████████████████████| 19234/19234 [2:02:42<00:00,  2.61it/s]
-Train Loss: 0.5157 | Val aggregation_propensity:MAE=1.2533 RMSE=1.6132 expression_yield:MAE=0.7097 RMSE=1.0429 folding_stability:MAE=0.8241 RMSE=1.0363 material_production:ACC=0.7704 F1=0.8222 solubility:ACC=0.7546 F1=0.7315 temperature_stability:ACC=0.9167 F1=0.9147 temperature_stability_abs:MAE=2.2741 RMSE=2.9710
-Epoch 5/10: 100%|██████████████████████| 19234/19234 [2:03:10<00:00,  2.60it/s]
-Train Loss: 0.4942 | Val aggregation_propensity:MAE=1.0490 RMSE=1.3967 expression_yield:MAE=0.7557 RMSE=1.0712 folding_stability:MAE=0.9029 RMSE=1.1143 material_production:ACC=0.7572 F1=0.8066 solubility:ACC=0.7283 F1=0.7262 temperature_stability:ACC=0.8952 F1=0.9014 temperature_stability_abs:MAE=2.0777 RMSE=2.7313
-Epoch 6/10: 100%|██████████████████████| 19234/19234 [2:03:00<00:00,  2.61it/s]
-Train Loss: 0.4750 | Val aggregation_propensity:MAE=1.2680 RMSE=1.6270 expression_yield:MAE=0.7610 RMSE=1.0689 folding_stability:MAE=0.8966 RMSE=1.1043 material_production:ACC=0.7694 F1=0.8206 solubility:ACC=0.7391 F1=0.7293 temperature_stability:ACC=0.8992 F1=0.9047 temperature_stability_abs:MAE=2.3254 RMSE=3.0082
-Epoch 7/10: 100%|██████████████████████| 19234/19234 [2:02:45<00:00,  2.61it/s]
-Train Loss: 0.4569 | Val aggregation_propensity:MAE=1.2822 RMSE=1.6492 expression_yield:MAE=0.7354 RMSE=1.0632 folding_stability:MAE=0.8455 RMSE=1.0592 material_production:ACC=0.7662 F1=0.8165 solubility:ACC=0.7476 F1=0.7321 temperature_stability:ACC=0.9098 F1=0.9129 temperature_stability_abs:MAE=2.2975 RMSE=2.9705
 Epoch 8/10: 100%|██████████████████████| 19234/19234 [2:03:14<00:00,  2.60it/s]
 Train Loss: 0.4440 | Val aggregation_propensity:MAE=1.1890 RMSE=1.5380 expression_yield:MAE=0.7119 RMSE=1.0359 folding_stability:MAE=0.9509 RMSE=1.1577 material_production:ACC=0.7802 F1=0.8325 solubility:ACC=0.7571 F1=0.7348 temperature_stability:ACC=0.9181 F1=0.9200 temperature_stability_abs:MAE=2.3290 RMSE=2.9995
 ```
+
+### Version 2026-04-26
+- Increased task-head capacity beyond the original `LayerNorm + Linear` design by introducing small MLP heads, with the main goal of improving regression calibration and expressiveness.
+- Removed `temperature_stability_abs` from the shared multitask setup because it was a small, single-protein dataset that was unlikely to contribute useful transferable signal.
+- Added richer validation for classification tasks, including `AUROC` and `AUPRC`, to separate ranking quality from thresholded classification quality.
+- Added post-hoc threshold tuning for binary classification tasks to test whether task-specific decision thresholds could improve `acc`, `balanced_acc`, `precision`, `recall`, and `F1`.
+- Added post-hoc linear calibration for regression tasks using `y_calibrated = a * y_pred + b` to correct prediction bias and under-dispersion without retraining.
+- Result: the architectural head changes were a clear improvement overall, while the post-hoc calibration steps produced modest but informative gains, especially for some regression tasks.
+
+```
+Classification Tasks
+task                   dtype  n      acc     bal_acc  precision  recall  f1      auroc   auprc   label_ratio      pred_ratio
+---------------------  -----  -----  ------  -------  ---------  ------  ------  ------  ------  ---------------  ---------------
+material_production    bool   2816   0.7823  0.7648   0.8734     0.8078  0.8393  0.8463  0.9265  0:0.296 1:0.704  0:0.349 1:0.651
+solubility             bool   7071   0.7645  0.7692   0.6894     0.7980  0.7397  0.8619  0.8231  0:0.581 1:0.419  0:0.515 1:0.485
+temperature_stability  bool   41981  0.9207  0.9211   0.8857     0.9644  0.9234  0.9829  0.9832  0:0.505 1:0.495  0:0.461 1:0.539
+
+Regression Tasks
+task                    n      label_mean  label_std  pred_mean  pred_std  mae     rmse    spearman
+----------------------  -----  ----------  ---------  ---------  --------  ------  ------  --------
+aggregation_propensity  1720   -1.8365     1.7641     -1.6190    1.5172    0.8434  1.1004  0.7860
+expression_yield        11204  -0.0776     1.1371     0.2937     0.6376    0.6129  1.0296  0.6740
+folding_stability       12562  -1.3020     1.2068     -0.6148    1.0979    0.7812  0.9900  0.8133
+
+Post-hoc Classification Threshold Tuning (fit on internal half, report on held-out half)
+task                   cal_n  rep_n  thr     acc     bal_acc  precision  recall  f1      auroc   auprc   label_ratio      pred_ratio
+---------------------  -----  -----  ------  ------  -------  ---------  ------  ------  ------  ------  ---------------  ---------------
+material_production    1408   1408   0.0500  0.7834  0.6871   0.8049     0.9169  0.8573  0.8422  0.9250  0:0.290 1:0.710  0:0.192 1:0.808
+solubility             3536   3535   0.4200  0.7545  0.7650   0.6652     0.8293  0.7382  0.8604  0.8210  0:0.582 1:0.418  0:0.479 1:0.521
+temperature_stability  20991  20990  0.7400  0.9294  0.9295   0.9247     0.9339  0.9293  0.9824  0.9827  0:0.504 1:0.496  0:0.499 1:0.501
+
+Post-hoc Regression Calibration (fit on internal half, report on held-out half)
+task                    cal_n  rep_n  slope   intercept  pred_mean  pred_std  mae     rmse    spearman
+----------------------  -----  -----  ------  ---------  ---------  --------  ------  ------  --------
+aggregation_propensity  860    860    0.9315  -0.3336    -1.8691    1.4176    0.8487  1.1001  0.7727
+expression_yield        5602   5602   0.9520  -0.3611    -0.0820    0.6079    0.6087  0.9457  0.6768
+folding_stability       6281   6281   0.8913  -0.7491    -1.2964    0.9734    0.5495  0.7004  0.8115
+```
+
+### Version 2026-04-28
+- Tested a new regression-loss recipe intended to better align strong ranking performance with stronger numeric accuracy.
+- Replaced plain `MSE` / `L1` regression loss with Huber loss to make training more robust to noisy or outlier-heavy biological measurements.
+- Added a pairwise ranking term to the regression objective:
+  `loss = mse_or_huber + lambda * pairwise_ranking_loss`
+- The goal was to preserve and strengthen relative ordering, since Spearman correlation was already reasonably strong on several tasks.
+- Result: this experiment did not improve the main validation metrics. Overall performance was slightly worse across both classification and regression, so this direction was not retained.
+
+```
+NEW RUN:
+Classification Tasks
+task                   dtype  n      acc     bal_acc  precision  recall  f1      auroc   auprc   label_ratio      pred_ratio
+---------------------  -----  -----  ------  -------  ---------  ------  ------  ------  ------  ---------------  ---------------
+material_production    bool   2816   0.7766  0.7590   0.8703     0.8022  0.8349  0.8459  0.9259  0:0.296 1:0.704  0:0.351 1:0.649
+solubility             bool   7071   0.7613  0.7669   0.6836     0.8017  0.7380  0.8592  0.8190  0:0.581 1:0.419  0:0.508 1:0.492
+temperature_stability  bool   41981  0.9126  0.9132   0.8653     0.9753  0.9170  0.9837  0.9839  0:0.505 1:0.495  0:0.442 1:0.558
+
+Regression Tasks
+task                    n      label_mean  label_std  pred_mean  pred_std  mae     rmse    spearman
+----------------------  -----  ----------  ---------  ---------  --------  ------  ------  --------
+aggregation_propensity  1720   -1.8365     1.7641     -1.5628    1.4654    0.8551  1.1350  0.7781
+expression_yield        11204  -0.0776     1.1371     0.3753     0.6047    0.6418  1.0886  0.6688
+folding_stability       12562  -1.3020     1.2068     -0.5382    1.0880    0.8535  1.0647  0.7964
+
+Post-hoc Classification Threshold Tuning (fit on internal half, report on held-out half)
+task                   cal_n  rep_n  thr     acc     bal_acc  precision  recall  f1      auroc   auprc   label_ratio      pred_ratio
+---------------------  -----  -----  ------  ------  -------  ---------  ------  ------  ------  ------  ---------------  ---------------
+material_production    1408   1408   0.0500  0.7947  0.7095   0.8187     0.9129  0.8632  0.8427  0.9241  0:0.290 1:0.710  0:0.209 1:0.791
+solubility             3536   3535   0.4700  0.7610  0.7693   0.6764     0.8198  0.7412  0.8592  0.8196  0:0.582 1:0.418  0:0.494 1:0.506
+temperature_stability  20991  20990  0.8300  0.9317  0.9317   0.9253     0.9381  0.9316  0.9834  0.9836  0:0.504 1:0.496  0:0.497 1:0.503
+
+Post-hoc Regression Calibration (fit on internal half, report on held-out half)
+task                    cal_n  rep_n  slope   intercept  pred_mean  pred_std  mae     rmse    spearman
+----------------------  -----  -----  ------  ---------  ---------  --------  ------  ------  --------
+aggregation_propensity  860    860    0.9500  -0.3447    -1.8443    1.3959    0.8705  1.1252  0.7645
+expression_yield        5602   5602   0.9278  -0.4292    -0.0809    0.5609    0.6317  0.9774  0.6696
+folding_stability       6281   6281   0.8789  -0.8238    -1.2960    0.9502    0.5709  0.7265  0.7957
+```
+
+### Version 2026-04-29
+- Introduced a shared adapter plus small per-task residual adapters so each task can specialize the shared representation without giving up multitask sharing.
+- Moved from one fully shared pooled representation to task-specific token adaptation before pooling, allowing each task to derive its own sequence summary from a common adapted backbone.
+- This change is intended to improve task-specific calibration and feature specialization while keeping the parameter increase modest.
