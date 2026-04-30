@@ -28,6 +28,7 @@ from config import (
   MODEL_NAME,
   PATIENCE,
   REGRESSION_HEAD_HIDDEN,
+  TASK_ADAPTER_DIM,
   TRAIN_CACHE_PATH,
   WARMUP_RATIO,
   WEIGHT_DECAY,
@@ -220,6 +221,7 @@ model = MultiTaskAdapterModel(
   embed_dim=embed_dim,
   task_metas=task_metas,
   adapter_dim=ADAPTER_DIM,
+  task_adapter_dim=TASK_ADAPTER_DIM,
   dropout=DROPOUT,
   classification_head_hidden=CLASSIFICATION_HEAD_HIDDEN,
   regression_head_hidden=REGRESSION_HEAD_HIDDEN,
@@ -234,14 +236,25 @@ if COMPILE_MODEL and hasattr(torch, "compile"):
 
 model_ref = unwrap_model(model)
 optimizer = torch.optim.AdamW(
-  [{"params": model_ref.adapter.parameters()}, {"params": model_ref.pool.parameters()}, {"params": model_ref.heads.parameters()}],
+  [
+    {"params": model_ref.adapter.parameters()},
+    {"params": model_ref.task_adapters.parameters()},
+    {"params": model_ref.pool.parameters()},
+    {"params": model_ref.heads.parameters()},
+  ],
   lr=LR,
   weight_decay=WEIGHT_DECAY,
   fused=USE_FUSED_ADAMW,
 )
 # Clip only the trainable modules. The encoder is frozen, so gradients there should
-# stay empty; clipping the adapter/pool/heads keeps unstable task batches in check.
-trainable_params = list(model_ref.adapter.parameters()) + list(model_ref.pool.parameters()) + list(model_ref.heads.parameters())
+# stay empty; clipping the shared adapter, task adapters, pool, and heads keeps
+# unstable task batches in check without touching the frozen backbone.
+trainable_params = (
+  list(model_ref.adapter.parameters())
+  + list(model_ref.task_adapters.parameters())
+  + list(model_ref.pool.parameters())
+  + list(model_ref.heads.parameters())
+)
 
 num_training_steps = len(train_loader) * EPOCHS
 num_warmup_steps = int(WARMUP_RATIO * num_training_steps)
@@ -366,6 +379,9 @@ for epoch in range(EPOCHS):
     # on the last epoch. Later epochs often help some tasks while hurting others.
     best_state = {
       "adapter": {k: v.cpu() for k, v in model_ref.adapter.state_dict().items()},
+      # Save task adapters separately from the shared adapter so validate.py can
+      # reconstruct either the new architecture or older checkpoints explicitly.
+      "task_adapters": {task_name: {k: v.cpu() for k, v in adapter.state_dict().items()} for task_name, adapter in model_ref.task_adapters.items()},
       "pool": {k: v.cpu() for k, v in model_ref.pool.state_dict().items()},
       "heads": {task_name: {k: v.cpu() for k, v in head.state_dict().items()} for task_name, head in model_ref.heads.items()},
       "aggregate_score": aggregate_score,
@@ -380,6 +396,8 @@ for epoch in range(EPOCHS):
 if best_state is not None:
   model_ref = unwrap_model(model)
   model_ref.adapter.load_state_dict(best_state["adapter"])
+  for task_name, state_dict in best_state["task_adapters"].items():
+    model_ref.task_adapters[task_name].load_state_dict(state_dict)
   model_ref.pool.load_state_dict(best_state["pool"])
   for task_name, state_dict in best_state["heads"].items():
     model_ref.heads[task_name].load_state_dict(state_dict)
@@ -389,11 +407,13 @@ out_path = "./prostt5_multitask_adapter_best.pt"
 torch.save(
   {
     "adapter_state_dict": model_ref.adapter.state_dict(),
+    "task_adapter_state_dicts": {task_name: adapter.state_dict() for task_name, adapter in model_ref.task_adapters.items()},
     "pool_state_dict": model_ref.pool.state_dict(),
     "head_state_dicts": {task_name: head.state_dict() for task_name, head in model_ref.heads.items()},
     "config": {
       "embed_dim": embed_dim,
       "adapter_dim": ADAPTER_DIM,
+      "task_adapter_dim": TASK_ADAPTER_DIM,
       "dropout": DROPOUT,
       "attn_pool_hidden": ATTN_POOL_HIDDEN,
       "classification_head_hidden": CLASSIFICATION_HEAD_HIDDEN,

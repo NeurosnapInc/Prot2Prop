@@ -32,6 +32,7 @@ from config import (
   EVAL_MAX_TOKENS_PER_BATCH,
   MODEL_NAME,
   REGRESSION_HEAD_HIDDEN,
+  TASK_ADAPTER_DIM,
   TOKENIZED_DATA_DIR,
 )
 from model import (
@@ -394,6 +395,7 @@ def main():
   model_name = checkpoint["config"].get("model_name", MODEL_NAME)
   classification_head_hidden = checkpoint["config"].get("classification_head_hidden", 0)
   regression_head_hidden = checkpoint["config"].get("regression_head_hidden", 0)
+  task_adapter_dim = checkpoint["config"].get("task_adapter_dim", 0)
   if classification_head_hidden == 0 and regression_head_hidden == 0:
     # Older checkpoints were saved before the MLP task heads were introduced. In that
     # case, force legacy head reconstruction so state dict loading still works.
@@ -402,6 +404,13 @@ def main():
   else:
     classification_head_hidden = checkpoint["config"].get("classification_head_hidden", CLASSIFICATION_HEAD_HIDDEN)
     regression_head_hidden = checkpoint["config"].get("regression_head_hidden", REGRESSION_HEAD_HIDDEN)
+  if task_adapter_dim == 0:
+    # Older checkpoints had only the shared adapter. Reconstruct the new model with
+    # zero-width task adapters so the loader can skip missing task-adapter weights and
+    # still recover the legacy behavior exactly.
+    task_adapter_dim = 0
+  else:
+    task_adapter_dim = checkpoint["config"].get("task_adapter_dim", TASK_ADAPTER_DIM)
   base_model = T5EncoderModel.from_pretrained(model_name).to(DEVICE)
   if DEVICE.type == "cuda":
     base_model.bfloat16()
@@ -414,12 +423,16 @@ def main():
     embed_dim=embed_dim,
     task_metas=task_metas,
     adapter_dim=checkpoint["config"].get("adapter_dim", ADAPTER_DIM),
+    task_adapter_dim=task_adapter_dim,
     dropout=checkpoint["config"].get("dropout", DROPOUT),
     classification_head_hidden=classification_head_hidden,
     regression_head_hidden=regression_head_hidden,
   ).to(DEVICE)
 
   model.adapter.load_state_dict(checkpoint["adapter_state_dict"])
+  task_adapter_state_dicts = checkpoint.get("task_adapter_state_dicts", {})
+  for task_name, state_dict in task_adapter_state_dicts.items():
+    model.task_adapters[task_name].load_state_dict(state_dict)
   model.pool.load_state_dict(checkpoint["pool_state_dict"])
   for task_name, state_dict in checkpoint["head_state_dicts"].items():
     model.heads[task_name].load_state_dict(state_dict)

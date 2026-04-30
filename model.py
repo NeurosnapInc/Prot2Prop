@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, Sampler
 
-from config import ADAPTER_DIM, ATTN_POOL_HIDDEN, CLASSIFICATION_HEAD_HIDDEN, DROPOUT, REGRESSION_HEAD_HIDDEN
+from config import ADAPTER_DIM, ATTN_POOL_HIDDEN, CLASSIFICATION_HEAD_HIDDEN, DROPOUT, REGRESSION_HEAD_HIDDEN, TASK_ADAPTER_DIM
 
 
 class MultiTaskSequenceDataset(Dataset):
@@ -189,6 +189,7 @@ class MultiTaskAdapterModel(nn.Module):
     embed_dim,
     task_metas=None,
     adapter_dim=ADAPTER_DIM,
+    task_adapter_dim=TASK_ADAPTER_DIM,
     dropout=DROPOUT,
     classification_head_hidden=CLASSIFICATION_HEAD_HIDDEN,
     regression_head_hidden=REGRESSION_HEAD_HIDDEN,
@@ -200,12 +201,25 @@ class MultiTaskAdapterModel(nn.Module):
     for param in self.base.parameters():
       param.requires_grad = False
     self.adapter = Adapter(embed_dim, adapter_dim, dropout_prob=dropout)
+    # The shared adapter learns one multitask correction that every task can benefit
+    # from, while the task adapters below add small task-specific residuals on top of
+    # that shared representation.
+    self.task_adapters = nn.ModuleDict()
     self.pool = AttnPool(embed_dim, hidden=ATTN_POOL_HIDDEN, dropout=dropout)
     self.heads = nn.ModuleDict()
 
     for task_name in task_order:
       output_dim = task_output_dims[task_name]
       meta = (task_metas or {}).get(task_name, {})
+      # Each task gets its own lightweight residual adapter before pooling. This lets
+      # tasks bend the token-level representation in different directions without
+      # paying the cost of a fully separate encoder path.
+      if task_adapter_dim and task_adapter_dim > 0:
+        self.task_adapters[task_name] = Adapter(embed_dim, task_adapter_dim, dropout_prob=dropout)
+      else:
+        # Identity keeps backward compatibility with older checkpoints and also makes
+        # it easy to ablate task adapters without changing the forward structure.
+        self.task_adapters[task_name] = nn.Identity()
       # Regression heads get a larger hidden layer because they need more capacity for
       # calibration-like corrections than the simpler classification boundaries do.
       hidden_dim = regression_head_hidden if meta.get("dtype") == "float" else classification_head_hidden
@@ -216,7 +230,7 @@ class MultiTaskAdapterModel(nn.Module):
         dropout=dropout,
       )
 
-  def encode(self, input_ids, attention_mask):
+  def encode_shared_tokens(self, input_ids, attention_mask):
     if input_ids.dtype != torch.long:
       input_ids = input_ids.long()
     if attention_mask.dtype not in (torch.long, torch.int64, torch.bool):
@@ -224,14 +238,24 @@ class MultiTaskAdapterModel(nn.Module):
 
     out = self.base(input_ids=input_ids, attention_mask=attention_mask)
     token_repr = out.last_hidden_state
-    # Apply the trainable residual adapter at the token level before pooling so heads
-    # see task-adapted sequence features instead of a raw frozen encoder summary.
-    adapted = token_repr + self.adapter(token_repr)
-    return self.pool(adapted, attention_mask)
+    # First apply the shared adapter once. This is the common multitask feature space
+    # that carries signal across tasks and keeps the parameter count manageable.
+    return token_repr + self.adapter(token_repr)
+
+  def encode_task(self, shared_tokens, attention_mask, task_name):
+    # Then add a task-specific residual adapter before pooling. Doing this at the
+    # token level is important: it allows each task to reshape which residues matter
+    # before the attention pool collapses the sequence into one vector.
+    task_tokens = shared_tokens + self.task_adapters[task_name](shared_tokens)
+    return self.pool(task_tokens, attention_mask)
 
   def forward(self, input_ids, attention_mask):
-    pooled = self.encode(input_ids, attention_mask)
-    return {task_name: head(pooled) for task_name, head in self.heads.items()}
+    shared_tokens = self.encode_shared_tokens(input_ids, attention_mask)
+    outputs = {}
+    for task_name, head in self.heads.items():
+      task_pooled = self.encode_task(shared_tokens, attention_mask, task_name)
+      outputs[task_name] = head(task_pooled)
+    return outputs
 
 
 def unwrap_model(model):

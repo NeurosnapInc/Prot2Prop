@@ -37,6 +37,9 @@ LR = 1e-4
 EPOCHS = 10
 # Bottleneck width for the trainable adapter inserted on top of ProstT5 embeddings.
 ADAPTER_DIM = 64
+# Bottleneck width for the small task-specific residual adapters applied on top of
+# the shared adapter output before pooling.
+TASK_ADAPTER_DIM = 32
 # Dropout probability used in the adapter and attention pooling layers.
 DROPOUT = 0.1
 # Hidden dimension for the attention pooling MLP.
