@@ -176,4 +176,35 @@ folding_stability       6281   6281   0.8789  -0.8238    -1.2960    0.9502    0.
 ### Version 2026-04-29
 - Introduced a shared adapter plus small per-task residual adapters so each task can specialize the shared representation without giving up multitask sharing.
 - Moved from one fully shared pooled representation to task-specific token adaptation before pooling, allowing each task to derive its own sequence summary from a common adapted backbone.
-- This change is intended to improve task-specific calibration and feature specialization while keeping the parameter increase modest.
+- This change was intended to improve task-specific calibration and feature specialization while keeping the parameter increase modest.
+- Result: this was the strongest run so far. The main gains came from the regression tasks, with substantial improvements in both error (`MAE` / `RMSE`) and ranking quality (`Spearman`), while classification performance remained broadly stable.
+- Post-hoc calibration continued to show additional upside for some regression tasks, especially `folding_stability`, suggesting the learned representation is strong and remaining gains may come from better final calibration rather than major architectural changes.
+```
+Classification Tasks
+task                   dtype  n      acc     bal_acc  precision  recall  f1      auroc   auprc   label_ratio      pred_ratio
+---------------------  -----  -----  ------  -------  ---------  ------  ------  ------  ------  ---------------  ---------------
+material_production    bool   2816   0.7773  0.7568   0.8672     0.8073  0.8362  0.8458  0.9262  0:0.296 1:0.704  0:0.345 1:0.655
+solubility             bool   7071   0.7657  0.7723   0.6861     0.8132  0.7443  0.8640  0.8296  0:0.581 1:0.419  0:0.503 1:0.497
+temperature_stability  bool   41981  0.9207  0.9211   0.8856     0.9644  0.9233  0.9838  0.9842  0:0.505 1:0.495  0:0.461 1:0.539
+
+Regression Tasks
+task                    n      label_mean  label_std  pred_mean  pred_std  mae     rmse    spearman
+----------------------  -----  ----------  ---------  ---------  --------  ------  ------  --------
+aggregation_propensity  1720   -1.8365     1.7641     -1.6774    1.5536    0.7268  0.9547  0.8452
+expression_yield        11204  -0.0776     1.1371     0.1792     0.6917    0.5464  0.9304  0.7267
+folding_stability       12562  -1.3020     1.2068     -0.8125    1.2342    0.6260  0.8305  0.8373
+
+Post-hoc Classification Threshold Tuning (fit on internal half, report on held-out half)
+task                   cal_n  rep_n  thr     acc     bal_acc  precision  recall  f1      auroc   auprc   label_ratio      pred_ratio
+---------------------  -----  -----  ------  ------  -------  ---------  ------  ------  ------  ------  ---------------  ---------------
+material_production    1408   1408   0.0500  0.7841  0.6912   0.8078     0.9129  0.8571  0.8473  0.9288  0:0.290 1:0.710  0:0.198 1:0.802
+solubility             3536   3535   0.4000  0.7491  0.7632   0.6536     0.8489  0.7386  0.8634  0.8298  0:0.582 1:0.418  0:0.458 1:0.542
+temperature_stability  20991  20990  0.7800  0.9330  0.9330   0.9318     0.9334  0.9326  0.9835  0.9839  0:0.504 1:0.496  0:0.503 1:0.497
+
+Post-hoc Regression Calibration (fit on internal half, report on held-out half)
+task                    cal_n  rep_n  slope   intercept  pred_mean  pred_std  mae     rmse    spearman
+----------------------  -----  -----  ------  ---------  ---------  --------  ------  ------  --------
+aggregation_propensity  860    860    0.9488  -0.2566    -1.8822    1.4586    0.7286  0.9532  0.8407
+expression_yield        5602   5602   1.0187  -0.2687    -0.0913    0.7097    0.5657  0.8792  0.7279
+folding_stability       6281   6281   0.8312  -0.6213    -1.2956    1.0233    0.4853  0.6360  0.8345
+```
