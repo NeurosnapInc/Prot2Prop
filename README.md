@@ -144,7 +144,6 @@ folding_stability       6281   6281   0.8913  -0.7491    -1.2964    0.9734    0.
 - Result: this experiment did not improve the main validation metrics. Overall performance was slightly worse across both classification and regression, so this direction was not retained.
 
 ```
-NEW RUN:
 Classification Tasks
 task                   dtype  n      acc     bal_acc  precision  recall  f1      auroc   auprc   label_ratio      pred_ratio
 ---------------------  -----  -----  ------  -------  ---------  ------  ------  ------  ------  ---------------  ---------------
