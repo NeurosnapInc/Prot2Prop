@@ -208,3 +208,37 @@ aggregation_propensity  860    860    0.9488  -0.2566    -1.8822    1.4586    0.
 expression_yield        5602   5602   1.0187  -0.2687    -0.0913    0.7097    0.5657  0.8792  0.7279
 folding_stability       6281   6281   0.8312  -0.6213    -1.2956    1.0233    0.4853  0.6360  0.8345
 ```
+
+### Version 2026-04-30
+- Added learned uncertainty weighting so each task contributed through a trainable per-task uncertainty term rather than fixed equal weighting.
+- This changed the multitask balance but did not clearly improve the overall result.
+- `aggregation_propensity` and `temperature_stability` improved, but `expression_yield` and `folding_stability` both regressed, making the net effect mixed to slightly worse overall.
+```
+Classification Tasks
+task                   dtype  n      acc     bal_acc  precision  recall  f1      auroc   auprc   label_ratio      pred_ratio
+---------------------  -----  -----  ------  -------  ---------  ------  ------  ------  ------  ---------------  ---------------
+material_production    bool   2816   0.7770  0.7565   0.8671     0.8068  0.8359  0.8437  0.9247  0:0.296 1:0.704  0:0.345 1:0.655
+solubility             bool   7071   0.7637  0.7704   0.6837     0.8121  0.7424  0.8660  0.8300  0:0.581 1:0.419  0:0.502 1:0.498
+temperature_stability  bool   41981  0.9265  0.9269   0.8938     0.9664  0.9287  0.9840  0.9842  0:0.505 1:0.495  0:0.465 1:0.535
+
+Regression Tasks
+task                    n      label_mean  label_std  pred_mean  pred_std  mae     rmse    spearman
+----------------------  -----  ----------  ---------  ---------  --------  ------  ------  --------
+aggregation_propensity  1720   -1.8365     1.7641     -1.8579    1.5613    0.6876  0.9205  0.8522
+expression_yield        11204  -0.0776     1.1371     0.2081     0.6905    0.5564  0.9491  0.7117
+folding_stability       12562  -1.3020     1.2068     -0.7288    1.2170    0.6883  0.8927  0.8322
+
+Post-hoc Classification Threshold Tuning (fit on internal half, report on held-out half)
+task                   cal_n  rep_n  thr     acc     bal_acc  precision  recall  f1      auroc   auprc   label_ratio      pred_ratio
+---------------------  -----  -----  ------  ------  -------  ---------  ------  ------  ------  ------  ---------------  ---------------
+material_production    1408   1408   0.0600  0.7919  0.7046   0.8157     0.9129  0.8616  0.8470  0.9279  0:0.290 1:0.710  0:0.206 1:0.794
+solubility             3536   3535   0.3800  0.7482  0.7638   0.6504     0.8584  0.7401  0.8667  0.8295  0:0.582 1:0.418  0:0.449 1:0.551
+temperature_stability  20991  20990  0.8100  0.9343  0.9343   0.9348     0.9327  0.9337  0.9837  0.9839  0:0.504 1:0.496  0:0.505 1:0.495
+
+Post-hoc Regression Calibration (fit on internal half, report on held-out half)
+task                    cal_n  rep_n  slope   intercept  pred_mean  pred_std  mae     rmse    spearman
+----------------------  -----  -----  ------  ---------  ---------  --------  ------  ------  --------
+aggregation_propensity  860    860    0.9649  -0.0649    -1.9009    1.4968    0.7141  0.9537  0.8401
+expression_yield        5602   5602   0.9918  -0.2912    -0.0886    0.6850    0.5730  0.8897  0.7140
+folding_stability       6281   6281   0.8328  -0.6897    -1.2955    1.0077    0.5020  0.6540  0.8277
+```
