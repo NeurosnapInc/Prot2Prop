@@ -24,6 +24,11 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import T5EncoderModel
 
+from calibration import (
+  apply_posthoc_calibration,
+  format_posthoc_classification_rows,
+  format_posthoc_regression_rows,
+)
 from config import (
   ADAPTER_DIM,
   BATCH_SIZE,
@@ -164,184 +169,6 @@ def _spearman_correlation(labels, preds):
     return None
 
   return (label_centered * pred_centered).sum().div(denominator).item()
-
-
-def _alternate_split_indices(num_items):
-  # Validation predictions are produced in a deterministic order that is influenced
-  # by sequence-length batching. Splitting by "first half / second half" would make
-  # the calibration subset and reporting subset systematically different. Using an
-  # alternating split keeps both halves interleaved across that ordering, which is a
-  # better lightweight stand-in for a held-out calibration split without changing the
-  # cached dataset format.
-  calib_indices = list(range(0, num_items, 2))
-  report_indices = list(range(1, num_items, 2))
-  return calib_indices, report_indices
-
-
-def _select_items(values, indices):
-  return [values[idx] for idx in indices]
-
-
-def _fit_linear_regression_calibrator(preds, labels):
-  # Fit the 1D affine calibrator y_calibrated = a * y_pred + b.
-  #
-  # We solve this analytically instead of pulling in another dependency:
-  #   a = cov(pred, label) / var(pred)
-  #   b = mean(label) - a * mean(pred)
-  #
-  # If the predictions are constant on the calibration subset, the slope becomes
-  # undefined. In that degenerate case we fall back to a constant predictor equal to
-  # the calibration-label mean.
-  preds_tensor = torch.tensor(preds, dtype=torch.float)
-  labels_tensor = torch.tensor(labels, dtype=torch.float)
-
-  pred_mean = preds_tensor.mean()
-  label_mean = labels_tensor.mean()
-  centered_preds = preds_tensor - pred_mean
-  centered_labels = labels_tensor - label_mean
-  variance = centered_preds.pow(2).mean()
-
-  if variance.item() == 0.0:
-    return 0.0, label_mean.item()
-
-  covariance = (centered_preds * centered_labels).mean()
-  slope = covariance.div(variance).item()
-  intercept = (label_mean - slope * pred_mean).item()
-  return slope, intercept
-
-
-def _apply_linear_regression_calibrator(preds, slope, intercept):
-  return [slope * pred + intercept for pred in preds]
-
-
-def _candidate_binary_thresholds(scores):
-  # Threshold tuning should be cheap and deterministic. A dense fixed grid is a good
-  # fit here because:
-  # - the score domain is bounded to [0, 1]
-  # - it is stable across runs
-  # - it avoids generating huge threshold sets for large validation splits
-  return [step / 100.0 for step in range(5, 96)]
-
-
-def _tune_binary_threshold(labels, scores):
-  # Choose the per-task threshold that maximizes F1 on the calibration subset.
-  #
-  # F1 is a pragmatic default here because these are imbalanced binary problems and
-  # the user is already inspecting precision/recall behavior. If a task later needs a
-  # different operating point, this helper is the single place to swap objectives.
-  best_threshold = 0.5
-  best_score = -1.0
-
-  for threshold in _candidate_binary_thresholds(scores):
-    preds = [1 if score >= threshold else 0 for score in scores]
-    score = f1_score(labels, preds, zero_division=0)
-    if score > best_score:
-      best_score = score
-      best_threshold = threshold
-
-  return best_threshold
-
-
-def _apply_binary_threshold(scores, threshold):
-  return [1 if score >= threshold else 0 for score in scores]
-
-
-def _posthoc_classification_rows(predictions, task_metas):
-  # Build a second classification table in which the decision threshold is learned on
-  # an internal calibration half and evaluated on the complementary reporting half.
-  #
-  # AUROC and AUPRC remain threshold-free ranking metrics, so they are recomputed on
-  # the reporting half only. The main threshold-sensitive gains should show up in
-  # accuracy / balanced accuracy / precision / recall / F1 and in pred_ratio.
-  rows = []
-
-  for task_name in sorted(predictions):
-    meta = task_metas[task_name]
-    if meta["dtype"] != "bool":
-      continue
-
-    labels = predictions[task_name]["labels"]
-    scores = predictions[task_name]["scores"]
-    if len(labels) < 4:
-      continue
-
-    calib_indices, report_indices = _alternate_split_indices(len(labels))
-    calib_labels = _select_items(labels, calib_indices)
-    calib_scores = _select_items(scores, calib_indices)
-    report_labels = _select_items(labels, report_indices)
-    report_scores = _select_items(scores, report_indices)
-
-    if len(set(calib_labels)) < 2 or len(set(report_labels)) < 2:
-      continue
-
-    threshold = _tune_binary_threshold(calib_labels, calib_scores)
-    report_preds = _apply_binary_threshold(report_scores, threshold)
-    report = _classification_report(report_labels, report_preds, report_scores, meta["dtype"])
-    rows.append(
-      [
-        task_name,
-        len(calib_labels),
-        len(report_labels),
-        _format_float(threshold),
-        _format_float(report["acc"]),
-        _format_float(report["balanced_acc"]),
-        _format_float(report["precision"]),
-        _format_float(report["recall"]),
-        _format_float(report["f1"]),
-        _format_float(report["auroc"]),
-        _format_float(report["auprc"]),
-        report["label_ratio"],
-        report["pred_ratio"],
-      ]
-    )
-
-  return rows
-
-
-def _posthoc_regression_rows(predictions, task_metas):
-  # Build a second regression table in which each task learns a simple affine
-  # calibrator on one held-out half and reports calibrated metrics on the other half.
-  #
-  # This specifically targets the common failure mode seen in multitask regression:
-  # the model gets the ordering mostly right but the numeric scale and offset are
-  # biased. Reporting the fitted slope/intercept makes that correction explicit.
-  rows = []
-
-  for task_name in sorted(predictions):
-    meta = task_metas[task_name]
-    if meta["dtype"] != "float":
-      continue
-
-    labels = predictions[task_name]["labels"]
-    preds = predictions[task_name]["preds"]
-    if len(labels) < 4:
-      continue
-
-    calib_indices, report_indices = _alternate_split_indices(len(labels))
-    calib_labels = _select_items(labels, calib_indices)
-    calib_preds = _select_items(preds, calib_indices)
-    report_labels = _select_items(labels, report_indices)
-    report_preds = _select_items(preds, report_indices)
-
-    slope, intercept = _fit_linear_regression_calibrator(calib_preds, calib_labels)
-    calibrated_report_preds = _apply_linear_regression_calibrator(report_preds, slope, intercept)
-    report = _regression_report(report_labels, calibrated_report_preds)
-    rows.append(
-      [
-        task_name,
-        len(calib_labels),
-        len(report_labels),
-        _format_float(slope),
-        _format_float(intercept),
-        _format_float(report["pred_mean"]),
-        _format_float(report["pred_std"]),
-        _format_float(report["mae"]),
-        _format_float(report["rmse"]),
-        _format_float(report["spearman"]),
-      ]
-    )
-
-  return rows
 
 
 def parse_args():
@@ -550,34 +377,89 @@ def main():
     )
   )
 
-  # The post-hoc stage below is intentionally separate from the raw metrics above.
-  # The first pair of tables shows the model exactly as it is used today. The second
-  # pair answers two narrower questions:
-  # 1. If we calibrate regression outputs with y = a * pred + b, how much numeric
-  #    error can we remove without retraining?
-  # 2. If we tune a binary threshold per classification task, how much thresholded
-  #    performance can we recover from the existing probability ranking?
-  #
-  # To avoid fitting and evaluating on the exact same examples, each task uses an
-  # internal deterministic even/odd split: one half for fitting and one half for
-  # reporting. This is still not as clean as a dedicated calibration split, but it is
-  # materially less optimistic than calibrating and scoring on the full same data.
-  posthoc_classification_rows = _posthoc_classification_rows(predictions, task_metas)
-  posthoc_regression_rows = _posthoc_regression_rows(predictions, task_metas)
-  print(
-    _format_table(
-      "Post-hoc Classification Threshold Tuning (fit on internal half, report on held-out half)",
-      ["task", "cal_n", "rep_n", "thr", "acc", "bal_acc", "precision", "recall", "f1", "auroc", "auprc", "label_ratio", "pred_ratio"],
-      posthoc_classification_rows,
+  checkpoint_calibration = checkpoint["config"].get("calibration")
+  if checkpoint_calibration:
+    calibrated_predictions = apply_posthoc_calibration(predictions, task_metas, checkpoint_calibration)
+    checkpoint_classification_rows = []
+    checkpoint_regression_rows = []
+    classification_params = checkpoint_calibration.get("classification", {})
+    regression_params = checkpoint_calibration.get("regression", {})
+
+    for task_name in sorted(task_order):
+      labels = calibrated_predictions[task_name]["labels"]
+      preds = calibrated_predictions[task_name]["preds"]
+      if not labels:
+        continue
+
+      meta = task_metas[task_name]
+      if meta["dtype"] == "bool" and task_name in classification_params:
+        report = _classification_report(labels, preds, calibrated_predictions[task_name]["scores"], meta["dtype"])
+        checkpoint_classification_rows.append(
+          [
+            task_name,
+            classification_params[task_name]["calibration_size"],
+            _format_float(classification_params[task_name]["threshold"]),
+            _format_float(report["acc"]),
+            _format_float(report["balanced_acc"]),
+            _format_float(report["precision"]),
+            _format_float(report["recall"]),
+            _format_float(report["f1"]),
+            _format_float(report["auroc"]),
+            _format_float(report["auprc"]),
+            report["label_ratio"],
+            report["pred_ratio"],
+          ]
+        )
+      elif meta["dtype"] == "float" and task_name in regression_params:
+        report = _regression_report(labels, preds)
+        checkpoint_regression_rows.append(
+          [
+            task_name,
+            regression_params[task_name]["calibration_size"],
+            _format_float(regression_params[task_name]["slope"]),
+            _format_float(regression_params[task_name]["intercept"]),
+            _format_float(report["pred_mean"]),
+            _format_float(report["pred_std"]),
+            _format_float(report["mae"]),
+            _format_float(report["rmse"]),
+            _format_float(report["spearman"]),
+          ]
+        )
+
+    print(
+      _format_table(
+        "Checkpoint Classification Calibration Applied",
+        ["task", "cal_n", "thr", "acc", "bal_acc", "precision", "recall", "f1", "auroc", "auprc", "label_ratio", "pred_ratio"],
+        checkpoint_classification_rows,
+      )
     )
-  )
-  print(
-    _format_table(
-      "Post-hoc Regression Calibration (fit on internal half, report on held-out half)",
-      ["task", "cal_n", "rep_n", "slope", "intercept", "pred_mean", "pred_std", "mae", "rmse", "spearman"],
-      posthoc_regression_rows,
+    print(
+      _format_table(
+        "Checkpoint Regression Calibration Applied",
+        ["task", "cal_n", "slope", "intercept", "pred_mean", "pred_std", "mae", "rmse", "spearman"],
+        checkpoint_regression_rows,
+      )
     )
-  )
+  else:
+    # Older checkpoints do not carry saved calibration parameters. Fall back to the
+    # previous validation-time analysis by fitting on an internal split of the current
+    # evaluation set and reporting on the complementary half.
+    posthoc_classification_rows = format_posthoc_classification_rows(predictions, task_metas)
+    posthoc_regression_rows = format_posthoc_regression_rows(predictions, task_metas)
+    print(
+      _format_table(
+        "Post-hoc Classification Threshold Tuning (fit on internal half, report on held-out half)",
+        ["task", "cal_n", "rep_n", "thr", "acc", "bal_acc", "precision", "recall", "f1", "auroc", "auprc", "label_ratio", "pred_ratio"],
+        posthoc_classification_rows,
+      )
+    )
+    print(
+      _format_table(
+        "Post-hoc Regression Calibration (fit on internal half, report on held-out half)",
+        ["task", "cal_n", "rep_n", "slope", "intercept", "pred_mean", "pred_std", "mae", "rmse", "spearman"],
+        posthoc_regression_rows,
+      )
+    )
 
 
 if __name__ == "__main__":

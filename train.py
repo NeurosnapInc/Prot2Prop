@@ -18,6 +18,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import T5EncoderModel, get_linear_schedule_with_warmup
 
+from calibration import fit_posthoc_calibration
 from config import (
   ADAPTER_DIM,
   ATTN_POOL_HIDDEN,
@@ -307,6 +308,7 @@ for epoch in range(EPOCHS):
     task_name: {
       "preds": [],
       "labels": [],
+      "scores": [],
       "normalized_preds": [],
       "normalized_labels": [],
     }
@@ -339,10 +341,14 @@ for epoch in range(EPOCHS):
           val_predictions[task_name]["normalized_preds"].extend(preds_norm.cpu().numpy().tolist())
           val_predictions[task_name]["normalized_labels"].extend(labels_norm.cpu().numpy().tolist())
         else:
-          preds = outputs[task_name][mask].argmax(dim=1)
+          logits = outputs[task_name][mask].float()
+          probs = torch.softmax(logits, dim=1)
+          preds = probs.argmax(dim=1)
           labels = raw_labels[mask, task_idx].long()
           val_predictions[task_name]["preds"].extend(preds.cpu().numpy().tolist())
           val_predictions[task_name]["labels"].extend(labels.cpu().numpy().tolist())
+          if meta["dtype"] == "bool":
+            val_predictions[task_name]["scores"].extend(probs[:, 1].cpu().numpy().tolist())
 
   task_reports = {}
   aggregate_score = 0.0
@@ -399,6 +405,7 @@ for epoch in range(EPOCHS):
       "heads": {task_name: {k: v.cpu() for k, v in head.state_dict().items()} for task_name, head in model_ref.heads.items()},
       "aggregate_score": aggregate_score,
       "task_reports": task_reports,
+      "validation_predictions": val_predictions,
     }
   else:
     stale += 1
@@ -414,6 +421,9 @@ if best_state is not None:
   model_ref.pool.load_state_dict(best_state["pool"])
   for task_name, state_dict in best_state["heads"].items():
     model_ref.heads[task_name].load_state_dict(state_dict)
+  calibration = fit_posthoc_calibration(best_state["validation_predictions"], task_metas, calibration_split="validation")
+else:
+  calibration = None
 
 model_ref = unwrap_model(model)
 run_date = date.today().isoformat()
@@ -439,6 +449,7 @@ torch.save(
       "task_output_dims": task_output_dims,
       "regression_mean": regression_means,
       "regression_std": regression_stds,
+      "calibration": calibration,
       "training_seed": TRAINING_SEED,
       "run_date": run_date,
       "best_aggregate_score": best_state["aggregate_score"] if best_state else None,
