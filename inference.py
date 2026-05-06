@@ -179,7 +179,7 @@ def load_model_and_tokenizer(checkpoint_path: Path):
 
 
 def predict_sequence(sequence: str, model, tokenizer, task_order, task_metas, regression_means, regression_stds):
-  encoded = tokenizer.batch_encode_plus(
+  encoded = tokenizer(
     [preprocess_sequence(sequence)],
     add_special_tokens=True,
     padding="longest",
