@@ -6,6 +6,7 @@ backed by one sequence-level tokenized cache with masked labels.
 import math
 import random
 from collections import Counter
+from datetime import date
 from typing import Dict, Tuple
 
 import numpy as np
@@ -415,7 +416,8 @@ if best_state is not None:
     model_ref.heads[task_name].load_state_dict(state_dict)
 
 model_ref = unwrap_model(model)
-out_path = "./prostt5_multitask_adapter_best.pt"
+run_date = date.today().isoformat()
+out_path = f"./prostt5_multitask_adapter_best_{run_date}_seed{TRAINING_SEED}.pt"
 torch.save(
   {
     "adapter_state_dict": model_ref.adapter.state_dict(),
@@ -437,6 +439,8 @@ torch.save(
       "task_output_dims": task_output_dims,
       "regression_mean": regression_means,
       "regression_std": regression_stds,
+      "training_seed": TRAINING_SEED,
+      "run_date": run_date,
       "best_aggregate_score": best_state["aggregate_score"] if best_state else None,
       "best_task_reports": best_state["task_reports"] if best_state else None,
     },
