@@ -4,9 +4,11 @@ backed by one sequence-level tokenized cache with masked labels.
 """
 
 import math
+import random
 from collections import Counter
 from typing import Dict, Tuple
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -29,6 +31,7 @@ from config import (
   PATIENCE,
   REGRESSION_HEAD_HIDDEN,
   TASK_ADAPTER_DIM,
+  TRAINING_SEED,
   TRAIN_CACHE_PATH,
   WARMUP_RATIO,
   WEIGHT_DECAY,
@@ -49,6 +52,14 @@ AMP_ENABLED = DEVICE.type == "cuda"
 COMPILE_MODEL = DEVICE.type == "cuda"
 PIN_MEMORY = DEVICE.type == "cuda"
 USE_FUSED_ADAMW = DEVICE.type == "cuda"
+
+
+def _set_training_seed(seed: int):
+  random.seed(seed)
+  np.random.seed(seed)
+  torch.manual_seed(seed)
+  if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(seed)
 
 
 def _build_classification_loss(meta: Dict[str, str], labels: torch.Tensor, mask: torch.Tensor):
@@ -142,6 +153,7 @@ print("Loading multitask tokenized cache")
 if not TRAIN_CACHE_PATH.exists():
   raise FileNotFoundError(f"Missing multitask tokenized cache at {TRAIN_CACHE_PATH}. Run tokenize_data.py first.")
 
+_set_training_seed(TRAINING_SEED)
 payload = torch.load(TRAIN_CACHE_PATH, map_location="cpu")
 task_order = payload["task_order"]
 task_metas = payload["task_metas"]

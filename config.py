@@ -56,6 +56,8 @@ WARMUP_RATIO = 0.05
 PATIENCE = 3
 # Random seed used by the length-aware weighted batch sampler.
 BATCH_SAMPLER_SEED = 42
+# Random seed applied at training startup for Python, NumPy, and PyTorch RNGs.
+TRAINING_SEED = 42
 # Path to the pre-tokenized multitask cache consumed by training.
 TRAIN_CACHE_PATH = TOKENIZED_DATA_DIR / "multitask_prostt5_tokens.pt"
 # Maximum padded tokens allowed in evaluation batches to avoid very long-sequence OOMs.
