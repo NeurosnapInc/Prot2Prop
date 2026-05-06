@@ -7,10 +7,12 @@ MODEL_NAME = "Rostlab/ProstT5"
 AGGREGATED_DB_PATH = "data/aggregated/aggregated.duckdb"
 # Default task name used by legacy single-task cache paths.
 TASK_NAME = "solubility"
+# Global seed controlling all other seeds
+GLOBAL_SEED = 42
 
 ### Data Split Settings
 # Random seed used when shuffling sequences into train, validation, and test splits.
-SPLIT_SEED = 42
+SPLIT_SEED = GLOBAL_SEED
 # Fraction of sequences assigned to the training split.
 TRAIN_FRACTION = 0.8
 # Fraction of sequences assigned to the validation split.
@@ -55,9 +57,9 @@ WARMUP_RATIO = 0.05
 # Number of non-improving validation epochs allowed before early stopping.
 PATIENCE = 3
 # Random seed used by the length-aware weighted batch sampler.
-BATCH_SAMPLER_SEED = 42
+BATCH_SAMPLER_SEED = GLOBAL_SEED
 # Random seed applied at training startup for Python, NumPy, and PyTorch RNGs.
-TRAINING_SEED = 42
+TRAINING_SEED = GLOBAL_SEED
 # Path to the pre-tokenized multitask cache consumed by training.
 TRAIN_CACHE_PATH = TOKENIZED_DATA_DIR / "multitask_prostt5_tokens.pt"
 # Maximum padded tokens allowed in evaluation batches to avoid very long-sequence OOMs.
