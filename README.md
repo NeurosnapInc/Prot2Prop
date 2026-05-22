@@ -9,6 +9,17 @@ This project aims to train **one shared adapter + task‑specific heads** for ke
 - [ ] Use a multi‑task loss with masking for missing labels.
 - [ ] Repeat training to build ensembles and evaluate ensembling strategies.
 
+### Ideas To Consider
+- Per-task pooling
+- Mixture-of-experts style light specialization
+- Train a few different variants with different seeds
+- Possibly add ESM-MSA optional embeddings
+- Possibly test out these properties added as additional features:
+  - Add MW, pI, net charge, charge density.
+  - Aromaticity, aliphatic index
+  - Low-complexity / entropy and disorder-related residue fractions.
+- Generate embeddings for each protein
+
 ### Properties (Primary)
 - Thermal unfolding metrics (Tm, ΔG)
 - Stability under pH or ionic strength shifts
