@@ -18,16 +18,14 @@ This project aims to train **one shared adapter + lightweight task-specific resi
 - Generate embeddings for each protein
 
 ### Properties (Primary)
-- Thermal unfolding metrics (Tm, ΔG)
-- Stability under pH or ionic strength shifts
-- Aggregation propensity
-- Solubility
-- Secretion signal / signal peptide presence
-- Protease susceptibility / half-life
-- Immunogenicity / epitope likelihood
-- Oligomerization state / assembly propensity
-- Metal binding / cofactor dependence
-- Membrane association / transmembrane topology
+- [X] Thermal unfolding metrics (Tm, ΔG)
+- [ ] Stability under pH or ionic strength shifts
+- [X] Aggregation propensity
+- [X] Solubility
+- [ ] Secretion signal / signal peptide presence
+- [ ] Immunogenicity / epitope likelihood
+- [ ] Oligomerization state / assembly propensity
+- [ ] Metal binding / cofactor dependence
 
 ## Properties (Secondary)
 Properties for future investigation (lower priority and potentially less synergistic with the primary set).
