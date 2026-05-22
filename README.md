@@ -51,6 +51,10 @@ Additionally, widely used tools (e.g., NetSolP-1.0) rely on older base models an
 
 ## Installation
 ```sh
+# clone github repo
+git clone https://github.com/NeurosnapInc/Prot2Prop.git
+cd Prot2Prop
+
 # install python dependencies
 python -m venv .venv && source .venv/bin/activate
 pip install -e .
