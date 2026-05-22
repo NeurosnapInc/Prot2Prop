@@ -19,6 +19,7 @@ from tqdm import tqdm
 from transformers import T5EncoderModel, get_linear_schedule_with_warmup
 
 from calibration import fit_posthoc_calibration
+from evolutionary_alignment_loss import EvolutionaryAlignmentLoss
 from config import (
   ADAPTER_DIM,
   ATTN_POOL_HIDDEN,
@@ -37,6 +38,9 @@ from config import (
   TRAIN_CACHE_PATH,
   WARMUP_RATIO,
   WEIGHT_DECAY,
+  EVOLUTIONARY_ALIGNMENT_TASK,
+  LAMBDA_EVOLUTIONARY_ALIGNMENT,
+  MAX_EVOLUTIONARY_MASKED_POSITIONS
 )
 from model import (
   MultiTaskAdapterModel,
@@ -249,12 +253,17 @@ if COMPILE_MODEL and hasattr(torch, "compile"):
     print(f"torch.compile unavailable, continuing without compile: {exc}")
 
 model_ref = unwrap_model(model)
+evo_loss_fn = EvolutionaryAlignmentLoss(
+  amino_acid_token_ids=None,
+  max_positions_per_sequence=MAX_EVOLUTIONARY_MASKED_POSITIONS,
+).to(DEVICE)
 optimizer = torch.optim.AdamW(
   [
     {"params": model_ref.adapter.parameters()},
     {"params": model_ref.task_adapters.parameters()},
     {"params": model_ref.pool.parameters()},
     {"params": model_ref.heads.parameters()},
+    {"params": model_ref.residue_likelihood_head.parameters()}
   ],
   lr=LR,
   weight_decay=WEIGHT_DECAY,
@@ -268,6 +277,7 @@ trainable_params = (
   + list(model_ref.task_adapters.parameters())
   + list(model_ref.pool.parameters())
   + list(model_ref.heads.parameters())
+  + list(model_ref.residue_likelihood_head.parameters())
 )
 
 num_training_steps = len(train_loader) * EPOCHS
@@ -285,16 +295,40 @@ for epoch in range(EPOCHS):
   model.train()
   total_loss = 0.0
 
-  for input_ids, attn_mask, raw_labels, normalized_labels, label_mask in tqdm(train_loader, desc=f"Epoch {epoch + 1}/{EPOCHS}"):
+  for input_ids, attn_mask, raw_labels, normalized_labels, label_mask, alignment_nll, alignment_mask, residue_token_ids in tqdm(train_loader, desc=f"Epoch {epoch + 1}/{EPOCHS}"):
     input_ids = input_ids.to(DEVICE, non_blocking=PIN_MEMORY)
     attn_mask = attn_mask.to(DEVICE, non_blocking=PIN_MEMORY)
     raw_labels = raw_labels.to(DEVICE, non_blocking=PIN_MEMORY)
     normalized_labels = normalized_labels.to(DEVICE, non_blocking=PIN_MEMORY)
     label_mask = label_mask.to(DEVICE, non_blocking=PIN_MEMORY)
+    alignment_nll = alignment_nll.to(DEVICE, non_blocking=PIN_MEMORY)
+    alignment_mask = alignment_mask.to(DEVICE, non_blocking=PIN_MEMORY)
+    residue_token_ids = residue_token_ids.to(DEVICE, non_blocking=PIN_MEMORY)
+
+    evo_enabled = (
+      LAMBDA_EVOLUTIONARY_ALIGNMENT > 0
+      and EVOLUTIONARY_ALIGNMENT_TASK in task_order
+    )
+    use_evo_loss = evo_enabled and bool(alignment_mask.any().item())
 
     with torch.amp.autocast("cuda", dtype=torch.bfloat16, enabled=AMP_ENABLED):
-      outputs = model(input_ids, attn_mask)
+      outputs = model(input_ids, attn_mask, return_residue_logits=evo_enabled)
       loss = _compute_multitask_loss(outputs, raw_labels, normalized_labels, label_mask, task_order, task_metas, criteria)
+
+    if use_evo_loss:
+      evo_task_idx = task_order.index(EVOLUTIONARY_ALIGNMENT_TASK)
+      evo_sequence_mask = label_mask[:, evo_task_idx]
+      evo_position_mask = alignment_mask & evo_sequence_mask.unsqueeze(1)
+      sampled_evo_mask = evo_loss_fn.sample_positions(evo_position_mask)
+
+      evo_loss, _ = evo_loss_fn(
+        outputs["residue_logits"],
+        residue_token_ids,
+        alignment_nll,
+        sampled_evo_mask,
+      )
+
+      loss = loss + LAMBDA_EVOLUTIONARY_ALIGNMENT * evo_loss
 
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
@@ -315,7 +349,7 @@ for epoch in range(EPOCHS):
     for task_name in task_order
   }
   with torch.no_grad():
-    for input_ids, attn_mask, raw_labels, normalized_labels, label_mask in val_loader:
+    for input_ids, attn_mask, raw_labels, normalized_labels, label_mask, *_ in val_loader:
       input_ids = input_ids.to(DEVICE, non_blocking=PIN_MEMORY)
       attn_mask = attn_mask.to(DEVICE, non_blocking=PIN_MEMORY)
       raw_labels = raw_labels.to(DEVICE, non_blocking=PIN_MEMORY)
@@ -402,6 +436,7 @@ for epoch in range(EPOCHS):
       # reconstruct either the new architecture or older checkpoints explicitly.
       "task_adapters": {task_name: {k: v.cpu() for k, v in adapter.state_dict().items()} for task_name, adapter in model_ref.task_adapters.items()},
       "pool": {k: v.cpu() for k, v in model_ref.pool.state_dict().items()},
+      "residue_likelihood_head": {k: v.cpu() for k, v in model_ref.residue_likelihood_head.state_dict().items()},
       "heads": {task_name: {k: v.cpu() for k, v in head.state_dict().items()} for task_name, head in model_ref.heads.items()},
       "aggregate_score": aggregate_score,
       "task_reports": task_reports,
@@ -419,6 +454,8 @@ if best_state is not None:
   for task_name, state_dict in best_state["task_adapters"].items():
     model_ref.task_adapters[task_name].load_state_dict(state_dict)
   model_ref.pool.load_state_dict(best_state["pool"])
+  if "residue_likelihood_head" in best_state:
+    model_ref.residue_likelihood_head.load_state_dict(best_state["residue_likelihood_head"])
   for task_name, state_dict in best_state["heads"].items():
     model_ref.heads[task_name].load_state_dict(state_dict)
   calibration = fit_posthoc_calibration(best_state["validation_predictions"], task_metas, calibration_split="validation")
@@ -433,6 +470,7 @@ torch.save(
     "adapter_state_dict": model_ref.adapter.state_dict(),
     "task_adapter_state_dicts": {task_name: adapter.state_dict() for task_name, adapter in model_ref.task_adapters.items()},
     "pool_state_dict": model_ref.pool.state_dict(),
+    "residue_likelihood_head_state_dict": model_ref.residue_likelihood_head.state_dict(),
     "head_state_dicts": {task_name: head.state_dict() for task_name, head in model_ref.heads.items()},
     "config": {
       "embed_dim": embed_dim,
