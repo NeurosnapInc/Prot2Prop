@@ -45,6 +45,7 @@ The current ecosystem provides many task-specific models for properties such as 
 Additionally, widely used tools (e.g., NetSolP-1.0) rely on older base models and datasets. With improved architectures, larger corpora, and better training algorithms now available, a modern, multi-property, structure-aware approach is both timely and high-impact.
 
 ## Installation
+### Core Program
 ```sh
 # clone github repo
 git clone https://github.com/NeurosnapInc/Prot2Prop.git
@@ -57,7 +58,8 @@ pip install -e .
 # training-only dependencies
 pip install -e ".[dev]"
 ```
-## Download ProteinGym
+
+### Download ProteinGym
 ```sh
 # download subs
 wget https://marks.hms.harvard.edu/proteingym/ProteinGym_v1.3/DMS_ProteinGym_substitutions.zip
