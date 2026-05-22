@@ -32,7 +32,7 @@ TOKENIZED_DATA_PATH = TOKENIZED_DATA_DIR / f"{TASK_NAME}_prostt5_tokens.pt"
 
 ### Model Settings & Hyperparameters
 # Number of sequences per optimization step during training.
-BATCH_SIZE = 32
+BATCH_SIZE = 16 # TODO: Was 32 but changed to 16 temporarily to reduce memory
 # Learning rate used by AdamW for adapter, pooling, and head parameters.
 LR = 1e-4
 # Maximum number of full passes over the training split.
