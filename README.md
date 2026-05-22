@@ -2,11 +2,8 @@
 Structure-aware fine-tuning of protein language models for joint prediction of multiple developability properties from protein structure inputs.
 
 ## Objectives
-This project aims to train **one shared adapter + task‑specific heads** for key developability properties relevant to enzymes, binders, synthetic biology, and related protein engineering tasks.
+This project aims to train **one shared adapter + lightweight task-specific residual adapters + task-specific heads** for key developability properties relevant to enzymes, binders, synthetic biology, and related protein engineering tasks.
 
-- [ ] Aggregate data from multiple datasets for properties of interest
-- [ ] Train a single adapter (or LoRA block) on all properties with a separate head per property.
-- [ ] Use a multi‑task loss with masking for missing labels.
 - [ ] Repeat training to build ensembles and evaluate ensembling strategies.
 
 ### Ideas To Consider
