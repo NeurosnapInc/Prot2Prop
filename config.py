@@ -62,5 +62,11 @@ BATCH_SAMPLER_SEED = GLOBAL_SEED
 TRAINING_SEED = GLOBAL_SEED
 # Path to the pre-tokenized multitask cache consumed by training.
 TRAIN_CACHE_PATH = TOKENIZED_DATA_DIR / "multitask_prostt5_tokens.pt"
+
+# Optional evolutionary-alignment auxiliary loss settings.
+EVOLUTIONARY_TARGETS_PATH = None
+EVOLUTIONARY_ALIGNMENT_TASK = "folding_stability"
+LAMBDA_EVOLUTIONARY_ALIGNMENT = 0.0
+MAX_EVOLUTIONARY_MASKED_POSITIONS = 64
 # Maximum padded tokens allowed in evaluation batches to avoid very long-sequence OOMs.
 EVAL_MAX_TOKENS_PER_BATCH = 32768
