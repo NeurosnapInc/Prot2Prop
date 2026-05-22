@@ -66,7 +66,7 @@ TRAIN_CACHE_PATH = TOKENIZED_DATA_DIR / "multitask_prostt5_tokens.pt"
 EVAL_MAX_TOKENS_PER_BATCH = 32768
 
 # Optional evolutionary-alignment auxiliary loss settings.
-EVOLUTIONARY_TARGETS_PATH = None
+EVOLUTIONARY_TARGETS_PATH = Path("data/folding_stability_evo_targets.jsonl")
 EVOLUTIONARY_ALIGNMENT_TASK = "folding_stability"
-LAMBDA_EVOLUTIONARY_ALIGNMENT = 0.0
+LAMBDA_EVOLUTIONARY_ALIGNMENT = 0.1
 MAX_EVOLUTIONARY_MASKED_POSITIONS = 64
