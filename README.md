@@ -254,3 +254,37 @@ aggregation_propensity  860    860    0.9649  -0.0649    -1.9009    1.4968    0.
 expression_yield        5602   5602   0.9918  -0.2912    -0.0886    0.6850    0.5730  0.8897  0.7140
 folding_stability       6281   6281   0.8328  -0.6897    -1.2955    1.0077    0.5020  0.6540  0.8277
 ```
+
+### Version 2026-05-22
+- Added optional evolutionary-alignment training support for `folding_stability` using precomputed homolog/MSA-derived residue likelihood targets.
+- This introduced a target-building script, tokenization/cache support for per-residue alignment supervision, and a residue-likelihood head with an auxiliary correlation-based loss.
+- The auxiliary loss is disabled by default through `LAMBDA_EVOLUTIONARY_ALIGNMENT = 0.0`, so this version mainly adds the training pathway and data plumbing rather than changing baseline behavior on its own.
+```
+Classification Tasks
+task                   dtype  n      acc     bal_acc  precision  recall  f1      auroc   auprc   label_ratio      pred_ratio
+---------------------  -----  -----  ------  -------  ---------  ------  ------  ------  ------  ---------------  ---------------
+material_production    bool   2816   0.7731  0.7485   0.8604     0.8088  0.8338  0.8408  0.9222  0:0.296 1:0.704  0:0.338 1:0.662
+solubility             bool   7071   0.7665  0.7733   0.6865     0.8155  0.7455  0.8667  0.8315  0:0.581 1:0.419  0:0.502 1:0.498
+temperature_stability  bool   41981  0.9233  0.9237   0.8899     0.9645  0.9257  0.9836  0.9839  0:0.505 1:0.495  0:0.463 1:0.537
+
+Regression Tasks
+task                    n      label_mean  label_std  pred_mean  pred_std  mae     rmse    spearman
+----------------------  -----  ----------  ---------  ---------  --------  ------  ------  --------
+aggregation_propensity  1720   -1.8365     1.7641     -1.5866    1.7134    0.7264  0.9615  0.8550
+expression_yield        11204  -0.0776     1.1371     0.1771     0.6963    0.5473  0.9305  0.7289
+folding_stability       12562  -1.3020     1.2068     -0.7797    1.2460    0.6435  0.8410  0.8440
+
+Checkpoint Classification Calibration Applied
+task                   cal_n  thr     acc     bal_acc  precision  recall  f1      auroc   auprc   label_ratio      pred_ratio
+---------------------  -----  ------  ------  -------  ---------  ------  ------  ------  ------  ---------------  ---------------
+material_production    2816   0.1200  0.7898  0.7152   0.8203     0.8981  0.8574  0.8408  0.9222  0:0.296 1:0.704  0:0.229 1:0.771
+solubility             7071   0.3800  0.7568  0.7708   0.6620     0.8580  0.7474  0.8667  0.8315  0:0.581 1:0.419  0:0.457 1:0.543
+temperature_stability  41981  0.6900  0.9311  0.9312   0.9209     0.9418  0.9313  0.9836  0.9839  0:0.505 1:0.495  0:0.494 1:0.506
+
+Checkpoint Regression Calibration Applied
+task                    cal_n  slope   intercept  pred_mean  pred_std  mae     rmse    spearman
+----------------------  -----  ------  ---------  ---------  --------  ------  ------  --------
+aggregation_propensity  1720   0.8834  -0.4347    -1.8363    1.5136    0.6901  0.9066  0.8550
+expression_yield        11204  1.0082  -0.2554    -0.0769    0.7020    0.5684  0.8949  0.7289
+folding_stability       12562  0.8285  -0.6566    -1.3026    1.0324    0.4725  0.6238  0.8440
+```
