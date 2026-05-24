@@ -257,8 +257,12 @@ folding_stability       6281   6281   0.8328  -0.6897    -1.2955    1.0077    0.
 
 ### Version 2026-05-22
 - Added optional evolutionary-alignment training support for `folding_stability` using precomputed homolog/MSA-derived residue likelihood targets.
+- This feature was inspired by the preprint at `https://www.biorxiv.org/content/10.1101/2025.04.25.650688v4`.
 - This introduced a target-building script, tokenization/cache support for per-residue alignment supervision, and a residue-likelihood head with an auxiliary correlation-based loss.
 - The auxiliary loss is disabled by default through `LAMBDA_EVOLUTIONARY_ALIGNMENT = 0.0`, so this version mainly adds the training pathway and data plumbing rather than changing baseline behavior on its own.
+- Compared with the previous best run (`2026-04-29`), this checkpoint looked roughly flat overall: classification moved slightly, ranking metrics were modestly stronger, and uncalibrated `folding_stability` regression was worse (`MAE 0.6435` vs `0.6260`) even though Spearman improved (`0.8440` vs `0.8373`).
+- The calibrated `folding_stability` MAE improved from `0.4853` to `0.4725`, an absolute gain of `0.0128` or about `2.6%`, but that effect is small and not cleanly apples-to-apples because older runs used validation-time post-hoc fitting while this checkpoint uses saved checkpoint calibration.
+- Practical takeaway: the measured `folding_stability` gain is modest enough that it may be within normal seed-to-seed variance, so this version does not yet make a strong case for keeping the evolutionary-alignment pathway on performance grounds alone.
 ```
 Classification Tasks
 task                   dtype  n      acc     bal_acc  precision  recall  f1      auroc   auprc   label_ratio      pred_ratio
