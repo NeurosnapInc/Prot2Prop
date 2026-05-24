@@ -33,6 +33,7 @@ from config import (
   PATIENCE,
   REGRESSION_HEAD_HIDDEN,
   TASK_ADAPTER_DIM,
+  TRAIN_MAX_TOKENS_PER_BATCH,
   TRAINING_SEED,
   TRAIN_CACHE_PATH,
   WARMUP_RATIO,
@@ -197,6 +198,9 @@ train_loader = DataLoader(
     shuffle=True,
     seed=BATCH_SAMPLER_SEED,
     sample_weights=train_sample_weights,
+    # Training can hit pathological long-sequence batches that are safe by example
+    # count but too large once padded for attention.
+    max_tokens_per_batch=TRAIN_MAX_TOKENS_PER_BATCH,
   ),
   collate_fn=lambda batch: collate_multitask_batch(batch, pad_token_id),
   pin_memory=PIN_MEMORY,

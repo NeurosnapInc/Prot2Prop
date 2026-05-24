@@ -62,5 +62,8 @@ BATCH_SAMPLER_SEED = GLOBAL_SEED
 TRAINING_SEED = GLOBAL_SEED
 # Path to the pre-tokenized multitask cache consumed by training.
 TRAIN_CACHE_PATH = TOKENIZED_DATA_DIR / "multitask_prostt5_tokens.pt"
+# Maximum padded tokens allowed in training batches so very long sequences shrink the
+# effective batch size instead of causing attention-memory spikes.
+TRAIN_MAX_TOKENS_PER_BATCH = 16384
 # Maximum padded tokens allowed in evaluation batches to avoid very long-sequence OOMs.
 EVAL_MAX_TOKENS_PER_BATCH = 32768
