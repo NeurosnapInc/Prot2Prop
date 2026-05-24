@@ -64,9 +64,3 @@ TRAINING_SEED = GLOBAL_SEED
 TRAIN_CACHE_PATH = TOKENIZED_DATA_DIR / "multitask_prostt5_tokens.pt"
 # Maximum padded tokens allowed in evaluation batches to avoid very long-sequence OOMs.
 EVAL_MAX_TOKENS_PER_BATCH = 32768
-
-# Optional evolutionary-alignment auxiliary loss settings.
-EVOLUTIONARY_TARGETS_PATH = Path("data/folding_stability_evo_targets.jsonl")
-EVOLUTIONARY_ALIGNMENT_TASK = "folding_stability"
-LAMBDA_EVOLUTIONARY_ALIGNMENT = 0.1
-MAX_EVOLUTIONARY_MASKED_POSITIONS = 64

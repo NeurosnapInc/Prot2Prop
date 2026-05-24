@@ -24,21 +24,6 @@ class MultiTaskSequenceDataset(Dataset):
           "normalized_labels": split_payload["normalized_labels"][idx],
           "label_mask": split_payload["label_mask"][idx],
           "length": int(length),
-          "alignment_nll": (
-            split_payload["alignment_nll"][idx]
-            if "alignment_nll" in split_payload
-            else torch.zeros_like(split_payload["input_ids"][idx], dtype=torch.float)
-          ),
-          "alignment_mask": (
-            split_payload["alignment_mask"][idx]
-            if "alignment_mask" in split_payload
-            else torch.zeros_like(split_payload["input_ids"][idx], dtype=torch.bool)
-          ),
-          "residue_token_ids": (
-            split_payload["residue_token_ids"][idx]
-            if "residue_token_ids" in split_payload
-            else torch.full_like(split_payload["input_ids"][idx], -100, dtype=torch.long)
-          ),
         }
       )
 
@@ -221,7 +206,6 @@ class MultiTaskAdapterModel(nn.Module):
     # that shared representation.
     self.task_adapters = nn.ModuleDict()
     self.pool = AttnPool(embed_dim, hidden=ATTN_POOL_HIDDEN, dropout=dropout)
-    self.residue_likelihood_head = nn.Linear(embed_dim, 20)
     self.heads = nn.ModuleDict()
 
     for task_name in task_order:
@@ -265,11 +249,9 @@ class MultiTaskAdapterModel(nn.Module):
     task_tokens = shared_tokens + self.task_adapters[task_name](shared_tokens)
     return self.pool(task_tokens, attention_mask)
 
-  def forward(self, input_ids, attention_mask, return_residue_logits=False):
+  def forward(self, input_ids, attention_mask):
     shared_tokens = self.encode_shared_tokens(input_ids, attention_mask)
     outputs = {}
-    if return_residue_logits:
-      outputs["residue_logits"] = self.residue_likelihood_head(shared_tokens)
     for task_name, head in self.heads.items():
       task_pooled = self.encode_task(shared_tokens, attention_mask, task_name)
       outputs[task_name] = head(task_pooled)
@@ -306,20 +288,4 @@ def collate_multitask_batch(batch, pad_token_id):
   raw_labels = torch.stack([sample["raw_labels"] for sample in batch])
   normalized_labels = torch.stack([sample["normalized_labels"] for sample in batch])
   label_mask = torch.stack([sample["label_mask"] for sample in batch])
-  alignment_nll = nn.utils.rnn.pad_sequence(
-    [sample["alignment_nll"] for sample in batch],
-    batch_first=True,
-    padding_value=0.0,
-  )
-  alignment_mask = nn.utils.rnn.pad_sequence(
-    [sample["alignment_mask"] for sample in batch],
-    batch_first=True,
-    padding_value=False,
-  )
-  residue_token_ids = nn.utils.rnn.pad_sequence(
-    [sample["residue_token_ids"] for sample in batch],
-    batch_first=True,
-    padding_value=-100,
-  )
-
-  return padded_ids, attention_mask, raw_labels, normalized_labels, label_mask, alignment_nll, alignment_mask, residue_token_ids
+  return padded_ids, attention_mask, raw_labels, normalized_labels, label_mask

@@ -276,7 +276,7 @@ def main():
 
   print(f"Running evaluation on split='{args.split}'")
   with torch.no_grad():
-    for input_ids, attn_mask, raw_labels, normalized_labels, label_mask, *_ in tqdm(loader, desc="Validate"):
+    for input_ids, attn_mask, raw_labels, normalized_labels, label_mask in tqdm(loader, desc="Validate"):
       input_ids = input_ids.to(DEVICE, non_blocking=PIN_MEMORY)
       attn_mask = attn_mask.to(DEVICE, non_blocking=PIN_MEMORY)
       raw_labels = raw_labels.to(DEVICE, non_blocking=PIN_MEMORY)

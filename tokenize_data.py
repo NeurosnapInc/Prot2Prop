@@ -3,10 +3,8 @@ Pre-tokenize the aggregated DuckDB into one multitask cache with global sequence
 splits, per-task label masks, and train-split normalization stats.
 """
 
-import json
 import random
 import re
-from pathlib import Path
 
 import duckdb
 import torch
@@ -14,8 +12,6 @@ from transformers import T5Tokenizer
 
 from config import (
   AGGREGATED_DB_PATH,
-  EVOLUTIONARY_ALIGNMENT_TASK,
-  EVOLUTIONARY_TARGETS_PATH,
   MAX_LENGTH,
   MODEL_NAME,
   SPLIT_SEED,
@@ -27,8 +23,6 @@ from config import (
 
 TOKENIZE_BATCH_SIZE = 128
 OUT_PATH = TOKENIZED_DATA_DIR / "multitask_prostt5_tokens.pt"
-AA = "ACDEFGHIKLMNPQRSTVWY"
-AA_TO_IDX = {aa: idx for idx, aa in enumerate(AA)}
 
 
 def _validate_split_fractions():
@@ -52,91 +46,6 @@ def _label_from_dtype(label: float, dtype: str):
 
 def _empty_label_row(num_tasks: int):
   return [0.0] * num_tasks
-
-
-def _load_evolutionary_targets(path):
-  if path is None or str(path).strip() == "":
-    return {}
-
-  path = Path(path)
-  if not path.exists():
-    raise FileNotFoundError(f"Evolutionary targets file not found: {path}")
-
-  targets = {}
-  with path.open() as handle:
-    for line_no, line in enumerate(handle, start=1):
-      if not line.strip():
-        continue
-
-      row = json.loads(line)
-      task_name = row.get("task_name")
-      source = row.get("source")
-      sequence = (row.get("sequence") or "").strip()
-      alignment_nll = row.get("alignment_nll")
-      alignment_mask = row.get("alignment_mask")
-
-      if task_name != EVOLUTIONARY_ALIGNMENT_TASK:
-        continue
-
-      if not source or not sequence:
-        raise ValueError(f"Evolutionary target line {line_no} missing source or sequence")
-
-      if alignment_nll is None or alignment_mask is None:
-        raise ValueError(f"Evolutionary target line {line_no} missing alignment_nll or alignment_mask")
-
-      if len(alignment_nll) != len(sequence):
-        raise ValueError(
-          f"Evolutionary target line {line_no} has len(alignment_nll)={len(alignment_nll)} "
-          f"but len(sequence)={len(sequence)}"
-        )
-
-      if len(alignment_mask) != len(sequence):
-        raise ValueError(
-          f"Evolutionary target line {line_no} has len(alignment_mask)={len(alignment_mask)} "
-          f"but len(sequence)={len(sequence)}"
-        )
-
-      key = (task_name, source, sequence)
-      targets[key] = {
-        "alignment_nll": [float(x) for x in alignment_nll],
-        "alignment_mask": [bool(x) for x in alignment_mask],
-      }
-
-  print(f"Loaded evolutionary targets: {len(targets)} from {path}")
-  return targets
-
-
-def _token_to_residue(token: str):
-  # SentencePiece tokenizers often prefix regular tokens with ▁. Other tokenizers may
-  # use Ġ. Strip these markers and keep only one-letter amino-acid tokens.
-  token = token.replace("▁", "").replace("Ġ", "").strip()
-  if len(token) == 1 and token in "ACDEFGHIKLMNPQRSTVWYX":
-    return token
-  return None
-
-
-def _residue_token_positions(sequence: str, token_ids, tokenizer):
-  cleaned_sequence = re.sub(r"[UZOB]", "X", sequence.upper())
-  tokens = tokenizer.convert_ids_to_tokens(list(token_ids))
-
-  positions = []
-  residue_idx = 0
-
-  for token_pos, token in enumerate(tokens):
-    if residue_idx >= len(cleaned_sequence):
-      break
-
-    residue = _token_to_residue(token)
-    if residue is None:
-      continue
-
-    # Only advance when the token matches the next residue. This avoids accidentally
-    # treating the <AA2fold> control token or special tokens as sequence residues.
-    if residue == cleaned_sequence[residue_idx]:
-      positions.append(token_pos)
-      residue_idx += 1
-
-  return positions
 
 
 def _compute_regression_stats(records, task_order, task_metas):
@@ -169,9 +78,6 @@ def _build_tokenized_split(records, tokenizer, task_order, task_metas, means, st
   normalized_labels = []
   label_mask = []
   lengths = []
-  alignment_nll = []
-  alignment_mask = []
-  residue_token_ids = []
 
   for start in range(0, len(records), TOKENIZE_BATCH_SIZE):
     batch = records[start:start + TOKENIZE_BATCH_SIZE]
@@ -190,28 +96,6 @@ def _build_tokenized_split(records, tokenizer, task_order, task_metas, means, st
       mask_tensor = torch.tensor(item["mask"], dtype=torch.bool)
       normalized_tensor = label_tensor.clone()
 
-      token_alignment_nll = torch.zeros(len(ids), dtype=torch.float)
-      token_alignment_mask = torch.zeros(len(ids), dtype=torch.bool)
-      token_residue_ids = torch.full((len(ids),), -100, dtype=torch.long)
-
-      raw_alignment_nll = item.get("alignment_nll")
-      raw_alignment_mask = item.get("alignment_mask")
-      if raw_alignment_nll is not None and raw_alignment_mask is not None:
-        residue_positions = _residue_token_positions(item["sequence"], ids, tokenizer)
-        usable = min(len(residue_positions), len(raw_alignment_nll), len(raw_alignment_mask))
-
-        cleaned_sequence = re.sub(r"[UZOB]", "X", item["sequence"].upper())
-
-        for residue_idx in range(usable):
-          token_pos = residue_positions[residue_idx]
-          residue = cleaned_sequence[residue_idx]
-          if residue in AA_TO_IDX:
-            token_residue_ids[token_pos] = AA_TO_IDX[residue]
-
-          if raw_alignment_mask[residue_idx]:
-            token_alignment_nll[token_pos] = float(raw_alignment_nll[residue_idx])
-            token_alignment_mask[token_pos] = True
-
       for task_idx, task_name in enumerate(task_order):
         if not mask_tensor[task_idx]:
           continue
@@ -223,9 +107,6 @@ def _build_tokenized_split(records, tokenizer, task_order, task_metas, means, st
       normalized_labels.append(normalized_tensor)
       label_mask.append(mask_tensor)
       lengths.append(len(ids))
-      alignment_nll.append(token_alignment_nll)
-      alignment_mask.append(token_alignment_mask)
-      residue_token_ids.append(token_residue_ids)
 
   if raw_labels:
     raw_labels_tensor = torch.stack(raw_labels)
@@ -245,9 +126,6 @@ def _build_tokenized_split(records, tokenizer, task_order, task_metas, means, st
     "normalized_labels": normalized_labels_tensor,
     "label_mask": label_mask_tensor,
     "lengths": lengths_tensor,
-    "alignment_nll": alignment_nll,
-    "alignment_mask": alignment_mask,
-    "residue_token_ids": residue_token_ids,
   }
 
 
@@ -281,19 +159,16 @@ try:
       "loss": loss,
     }
 
-  evolutionary_targets = _load_evolutionary_targets(EVOLUTIONARY_TARGETS_PATH)
-  evolutionary_target_matches = 0
-
   sample_rows = con.execute(
     """
-    SELECT sequence, source, task_name, label
+    SELECT sequence, task_name, label
     FROM samples
-    ORDER BY sequence, source, task_name
+    ORDER BY sequence, task_name
     """
   ).fetchall()
 
   sequence_records = {}
-  for sequence, source, task_name, label in sample_rows:
+  for sequence, task_name, label in sample_rows:
     sequence = (sequence or "").strip()
     if not sequence:
       continue
@@ -304,30 +179,13 @@ try:
         "sequence": sequence,
         "labels": _empty_label_row(len(task_order)),
         "mask": [False] * len(task_order),
-        "alignment_nll": None,
-        "alignment_mask": None,
-        "evo_source": None,
       },
     )
-
-    if task_name == EVOLUTIONARY_ALIGNMENT_TASK and evolutionary_targets:
-      evo_key = (task_name, source, sequence)
-      evo_target = evolutionary_targets.get(evo_key)
-      if evo_target is not None:
-        if record["alignment_nll"] is None:
-          evolutionary_target_matches += 1
-        record["alignment_nll"] = evo_target["alignment_nll"]
-        record["alignment_mask"] = evo_target["alignment_mask"]
-        record["evo_source"] = source
-
     task_idx = task_to_idx[task_name]
     record["labels"][task_idx] = _label_from_dtype(label, task_metas[task_name]["dtype"])
     record["mask"][task_idx] = True
 
   records = list(sequence_records.values())
-  if evolutionary_targets:
-    print(f"Matched evolutionary targets for {evolutionary_target_matches} unique sequences")
-
   if not records:
     raise ValueError(f"No valid sequences found in {AGGREGATED_DB_PATH}")
 
@@ -397,9 +255,7 @@ try:
         "test_fraction": TEST_FRACTION,
         "max_length": MAX_LENGTH,
         "pad_token_id": tokenizer.pad_token_id,
-          "cache_format": "multitask_sequence_masked_evo_v1",
-          "evolutionary_targets_path": str(EVOLUTIONARY_TARGETS_PATH) if EVOLUTIONARY_TARGETS_PATH else None,
-          "evolutionary_alignment_task": EVOLUTIONARY_ALIGNMENT_TASK,
+        "cache_format": "multitask_sequence_masked_v1",
       },
       "normalization": {
         "train_mean": train_means,
