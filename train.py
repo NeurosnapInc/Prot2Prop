@@ -51,8 +51,7 @@ from model import (
 ### Constants
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 AMP_ENABLED = DEVICE.type == "cuda"
-# COMPILE_MODEL = DEVICE.type == "cuda"
-COMPILE_MODEL = False
+COMPILE_MODEL = DEVICE.type == "cuda"
 PIN_MEMORY = DEVICE.type == "cuda"
 USE_FUSED_ADAMW = DEVICE.type == "cuda"
 
