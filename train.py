@@ -431,7 +431,7 @@ else:
 
 model_ref = unwrap_model(model)
 run_date = date.today().isoformat()
-out_path = f"./prostt5_multitask_adapter_best_{run_date}_seed{TRAINING_SEED}.pt"
+out_path = f"./prostt5_multitask_adapter_best_{run_date}_seed_{TRAINING_SEED}.pt"
 torch.save(
   {
     "adapter_state_dict": model_ref.adapter.state_dict(),
