@@ -49,7 +49,6 @@ from model import (
 )
 
 
-DEFAULT_CHECKPOINT_PATH = "./prostt5_multitask_adapter_best_2026-05-26_seed_26.pt"
 DEFAULT_CACHE_PATH = TOKENIZED_DATA_DIR / "multitask_prostt5_tokens.pt"
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -173,7 +172,7 @@ def _spearman_correlation(labels, preds):
 
 def parse_args():
   parser = argparse.ArgumentParser(description="Validate a trained multitask ProstT5 adapter checkpoint.")
-  parser.add_argument("--checkpoint", default=DEFAULT_CHECKPOINT_PATH, help="Path to the saved adapter checkpoint.")
+  parser.add_argument("--checkpoint", required=True, help="Path to the saved adapter checkpoint.")
   parser.add_argument("--cache", default=str(DEFAULT_CACHE_PATH), help="Path to the tokenized multitask cache.")
   parser.add_argument(
     "--split",
