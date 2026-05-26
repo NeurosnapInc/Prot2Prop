@@ -49,7 +49,7 @@ from model import (
 )
 
 
-DEFAULT_CHECKPOINT_PATH = "./prostt5_multitask_adapter_best_2026-05-25_seed_42.pt"
+DEFAULT_CHECKPOINT_PATH = "./prostt5_multitask_adapter_best_2026-05-26_seed_26.pt"
 DEFAULT_CACHE_PATH = TOKENIZED_DATA_DIR / "multitask_prostt5_tokens.pt"
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
