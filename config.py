@@ -8,7 +8,7 @@ AGGREGATED_DB_PATH = "data/aggregated/aggregated.duckdb"
 # Default task name used by legacy single-task cache paths.
 TASK_NAME = "solubility"
 # Global seed controlling all other seeds
-GLOBAL_SEED = 26
+GLOBAL_SEED = 1
 
 ### Data Split Settings
 # Random seed used when shuffling sequences into train, validation, and test splits.
