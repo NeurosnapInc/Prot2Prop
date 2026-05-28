@@ -87,28 +87,6 @@ python train.py
 ```
 
 ## Results (WIP)
-### Crude Solubility Results for Reference
-```sh
-Epoch 1/3: 100%|???????????| 7810/7810 [1:05:11<00:00,  2.00it/s]
-Train Loss: 0.5971 | Val Acc: 0.7097 F1: 0.7000
-Epoch 2/3: 100%|???????????| 7810/7810 [1:05:04<00:00,  2.00it/s]
-Train Loss: 0.5374 | Val Acc: 0.7233 F1: 0.7051
-Epoch 3/3: 100%|???????????| 7810/7810 [1:04:57<00:00,  2.00it/s]
-Train Loss: 0.5194 | Val Acc: 0.7224 F1: 0.7146
-```
-
-### New version initial run
-```sh
-Epoch 6/10: 100%|██████████████████████| 59052/59052 [7:47:30<00:00,  2.11it/s]
-Train Loss: 0.7318 | Val aggregation_propensity:MAE=0.8527 binding_affinity:MAE=7894.5411 enzymatic_activity:MAE=0.4782 expression_yield:MAE=0.7306 folding_stability:MAE=0.7612 material_production:F1=0.8043 membrane_topology:MAE=1.2854 solubility:F1=0.7377 temperature_stability:MAE=0.2187 thermostability:MAE=1.8387
-```
-
-### New version with better dataset:
-```
-Epoch 8/10: 100%|██████████████████████| 19234/19234 [2:03:14<00:00,  2.60it/s]
-Train Loss: 0.4440 | Val aggregation_propensity:MAE=1.1890 RMSE=1.5380 expression_yield:MAE=0.7119 RMSE=1.0359 folding_stability:MAE=0.9509 RMSE=1.1577 material_production:ACC=0.7802 F1=0.8325 solubility:ACC=0.7571 F1=0.7348 temperature_stability:ACC=0.9181 F1=0.9200 temperature_stability_abs:MAE=2.3290 RMSE=2.9995
-```
-
 ### Version 2026-04-26
 - Increased task-head capacity beyond the original `LayerNorm + Linear` design by introducing small MLP heads, with the main goal of improving regression calibration and expressiveness.
 - Removed `temperature_stability_abs` from the shared multitask setup because it was a small, single-protein dataset that was unlikely to contribute useful transferable signal.
