@@ -86,7 +86,7 @@ python tokenize_data.py
 python train.py
 ```
 
-## Results (WIP)
+## Results
 ### Version 2026-04-26
 - Increased task-head capacity beyond the original `LayerNorm + Linear` design by introducing small MLP heads, with the main goal of improving regression calibration and expressiveness.
 - Removed `temperature_stability_abs` from the shared multitask setup because it was a small, single-protein dataset that was unlikely to contribute useful transferable signal.
