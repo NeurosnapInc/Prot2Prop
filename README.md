@@ -419,3 +419,39 @@ aggregation_propensity  860    860    0.8911  -0.5016    -1.8869    1.4450    0.
 expression_yield        5602   5602   1.0229  -0.2723    -0.0884    0.6907    0.5711  0.8862  0.7237
 folding_stability       6281   6281   0.8341  -0.6338    -1.2984    1.0151    0.4916  0.6419  0.8348
 ```
+
+#### 4 Checkpoint Ensemble
+- Evaluated a simple four-checkpoint prediction ensemble built from the strongest recent seeds and the older mixed-seed checkpoint.
+- Result: the ensemble was competitive, but it did **not** clearly beat the best single-checkpoint runs overall.
+- Classification moved only slightly and remained roughly within normal run-to-run variation.
+- Regression was mixed: the ensemble was solid, but it generally did not surpass the strongest single-seed checkpoints on the tasks that mattered most, especially when comparing against the best raw `Spearman` / `MAE` results from `aggregation_propensity`, `expression_yield`, and `folding_stability`.
+- Practical takeaway: ensembling did not provide a compelling enough gain to justify treating it as the default evaluation or deployment path, so the best single-checkpoint models remain the more meaningful reference point.
+```
+Classification Tasks
+task                   dtype  n      acc     bal_acc  precision  recall  f1      auroc   auprc   label_ratio      pred_ratio
+---------------------  -----  -----  ------  -------  ---------  ------  ------  ------  ------  ---------------  ---------------
+material_production    bool   2816   0.7784  0.7620   0.8727     0.8022  0.8360  0.8480  0.9283  0:0.296 1:0.704  0:0.353 1:0.647
+solubility             bool   7071   0.7715  0.7778   0.6929     0.8172  0.7499  0.8714  0.8369  0:0.581 1:0.419  0:0.505 1:0.495
+temperature_stability  bool   41981  0.9259  0.9262   0.8960     0.9621  0.9279  0.9840  0.9844  0:0.505 1:0.495  0:0.468 1:0.532
+
+Regression Tasks
+task                    n      label_mean  label_std  pred_mean  pred_std  mae     rmse    spearman
+----------------------  -----  ----------  ---------  ---------  --------  ------  ------  --------
+aggregation_propensity  1720   -1.8365     1.7641     -1.5853    1.5856    0.7190  0.9475  0.8575
+expression_yield        11204  -0.0776     1.1371     0.1860     0.6789    0.5498  0.9393  0.7182
+folding_stability       12562  -1.3020     1.2068     -0.7492    1.2227    0.6660  0.8661  0.8432
+
+Post-hoc Classification Threshold Tuning (fit on internal half, report on held-out half)
+task                   cal_n  rep_n  thr     acc     bal_acc  precision  recall  f1      auroc   auprc   label_ratio      pred_ratio
+---------------------  -----  -----  ------  ------  -------  ---------  ------  ------  ------  ------  ---------------  ---------------
+material_production    1408   1408   0.0700  0.7841  0.6840   0.8024     0.9229  0.8585  0.8486  0.9305  0:0.290 1:0.710  0:0.184 1:0.816
+solubility             3536   3535   0.4700  0.7661  0.7751   0.6802     0.8299  0.7476  0.8709  0.8358  0:0.582 1:0.418  0:0.491 1:0.509
+temperature_stability  20991  20990  0.6800  0.9328  0.9329   0.9250     0.9410  0.9329  0.9837  0.9841  0:0.504 1:0.496  0:0.495 1:0.505
+
+Post-hoc Regression Calibration (fit on internal half, report on held-out half)
+task                    cal_n  rep_n  slope   intercept  pred_mean  pred_std  mae     rmse    spearman
+----------------------  -----  -----  ------  ---------  ---------  --------  ------  ------  --------
+aggregation_propensity  860    860    0.9428  -0.3563    -1.8877    1.4800    0.7062  0.9285  0.8527
+expression_yield        5602   5602   1.0186  -0.2744    -0.0890    0.6925    0.5723  0.8868  0.7198
+folding_stability       6281   6281   0.8379  -0.6695    -1.2969    1.0199    0.4870  0.6359  0.8398
+```
