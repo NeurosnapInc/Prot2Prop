@@ -28,6 +28,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "datasets",
+  "plotly",
   "scikit-learn",
   "tqdm",
   "ruff",
