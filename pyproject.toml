@@ -23,6 +23,7 @@ dependencies = [
   "transformers",
   "sentencepiece",
   "duckdb",
+  "neurosnap",
 ]
 
 [project.optional-dependencies]

@@ -1,6 +1,5 @@
 """
-Run single-sequence inference with a trained multitask ProstT5 adapter checkpoint.
-Accepts either a raw amino-acid sequence or a PDB file and prints task predictions.
+Run multitask ProstT5 adapter inference from a raw amino-acid sequence or FASTA file.
 """
 
 import argparse
@@ -8,6 +7,7 @@ import re
 from pathlib import Path
 
 import torch
+from neurosnap.sequence.align import read_msa
 from transformers import T5EncoderModel, T5Tokenizer
 
 from config import (
@@ -22,80 +22,41 @@ from model import MultiTaskAdapterModel
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 AMP_ENABLED = DEVICE.type == "cuda"
-
-# Standard three-letter residue codes to one-letter sequence.
-THREE_TO_ONE = {
-  "ALA": "A",
-  "ARG": "R",
-  "ASN": "N",
-  "ASP": "D",
-  "CYS": "C",
-  "GLN": "Q",
-  "GLU": "E",
-  "GLY": "G",
-  "HIS": "H",
-  "ILE": "I",
-  "LEU": "L",
-  "LYS": "K",
-  "MET": "M",
-  "PHE": "F",
-  "PRO": "P",
-  "SER": "S",
-  "THR": "T",
-  "TRP": "W",
-  "TYR": "Y",
-  "VAL": "V",
-  "SEC": "U",
-  "PYL": "O",
-}
-
-
-def _seq_from_seqres(lines):
-  residues = []
-  for line in lines:
-    if not line.startswith("SEQRES"):
-      continue
-    parts = line.split()
-    for res in parts[4:]:
-      residues.append(THREE_TO_ONE.get(res.upper(), "X"))
-  return "".join(residues)
-
-
-def _seq_from_atom(lines):
-  residues = []
-  seen = set()
-  for line in lines:
-    if not line.startswith("ATOM"):
-      continue
-    atom_name = line[12:16].strip()
-    if atom_name != "CA":
-      continue
-    resname = line[17:20].strip().upper()
-    chain_id = line[21].strip()
-    resseq = line[22:26].strip()
-    icode = line[26].strip()
-    key = (chain_id, resseq, icode)
-    if key in seen:
-      continue
-    seen.add(key)
-    residues.append(THREE_TO_ONE.get(resname, "X"))
-  return "".join(residues)
-
-
-def load_sequence_from_pdb(pdb_path: Path) -> str:
-  lines = pdb_path.read_text(encoding="utf-8", errors="ignore").splitlines()
-  seq = _seq_from_seqres(lines)
-  if not seq:
-    seq = _seq_from_atom(lines)
-  if not seq:
-    raise ValueError(f"Unable to derive sequence from PDB: {pdb_path}")
-  return seq
+VALID_SEQUENCE_PATTERN = re.compile(r"^[ACDEFGHIKLMNPQRSTVWYUZOBX]+$")
 
 
 def preprocess_sequence(seq: str) -> str:
   seq = re.sub(r"[UZOB]", "X", seq.upper())
   spaced = " ".join(list(seq))
   return "<AA2fold> " + spaced
+
+
+def normalize_sequence(seq: str) -> str:
+  sequence = re.sub(r"\s+", "", seq).upper()
+  if not sequence:
+    raise ValueError("Sequence is empty.")
+  if VALID_SEQUENCE_PATTERN.fullmatch(sequence) is None:
+    raise ValueError("Sequence contains invalid amino-acid characters.")
+  return sequence
+
+
+def load_fasta_sequences(fasta_path: Path):
+  if not fasta_path.exists():
+    raise FileNotFoundError(f"FASTA not found: {fasta_path}")
+
+  records = []
+  for name, sequence in read_msa(str(fasta_path), allow_chars="UZOBX"):
+    records.append(
+      {
+        "name": name,
+        "sequence": normalize_sequence(sequence),
+        "source": str(fasta_path),
+      }
+    )
+
+  if not records:
+    raise ValueError(f"No sequences found in FASTA: {fasta_path}")
+  return records
 
 
 def _infer_task_output_dims(checkpoint, task_order):
@@ -178,44 +139,83 @@ def load_model_and_tokenizer(checkpoint_path: Path):
   return model, tokenizer, task_order, task_metas, regression_means, regression_stds
 
 
-def predict_sequence(sequence: str, model, tokenizer, task_order, task_metas, regression_means, regression_stds):
-  encoded = tokenizer(
-    [preprocess_sequence(sequence)],
-    add_special_tokens=True,
-    padding="longest",
-    return_tensors="pt",
-  ).to(DEVICE)
+def iter_sequence_batches(records, batch_size: int, max_tokens_per_batch: int | None):
+  sorted_indices = sorted(range(len(records)), key=lambda idx: len(records[idx]["sequence"]))
+  current_batch = []
+  current_max_len = 0
 
-  with torch.no_grad():
-    with torch.amp.autocast("cuda", dtype=torch.bfloat16, enabled=AMP_ENABLED):
-      outputs = model(encoded.input_ids, encoded.attention_mask)
+  for idx in sorted_indices:
+    sequence_len = len(records[idx]["sequence"])
+    proposed_max_len = max(current_max_len, sequence_len)
+    proposed_batch_size = len(current_batch) + 1
+    exceeds_token_budget = max_tokens_per_batch is not None and proposed_max_len * proposed_batch_size > max_tokens_per_batch
 
-  predictions = {}
-  for task_idx, task_name in enumerate(task_order):
-    meta = task_metas[task_name]
-    logits = outputs[task_name][0].detach().float().cpu()
-    if meta["dtype"] == "float":
-      pred_norm = float(logits.squeeze(-1).item())
-      pred = pred_norm
-      if regression_means is not None and regression_stds is not None:
-        pred = pred_norm * float(regression_stds[task_idx]) + float(regression_means[task_idx])
-      predictions[task_name] = {
-        "type": "regression",
-        "value": pred,
-        "normalized_value": pred_norm,
-      }
-      continue
+    if current_batch and (len(current_batch) >= batch_size or exceeds_token_budget):
+      yield current_batch
+      current_batch = []
+      current_max_len = 0
+      proposed_max_len = sequence_len
 
-    probs = torch.softmax(logits, dim=-1)
-    pred_class = int(torch.argmax(probs).item())
-    task_prediction = {
-      "type": "classification",
-      "predicted_class": pred_class,
-      "probabilities": probs.tolist(),
+    current_batch.append(idx)
+    current_max_len = proposed_max_len
+
+  if current_batch:
+    yield current_batch
+
+
+def _prediction_from_logits(logits, task_idx, task_name, task_metas, regression_means, regression_stds):
+  meta = task_metas[task_name]
+  logits = logits.detach().float().cpu()
+  if meta["dtype"] == "float":
+    pred_norm = float(logits.squeeze(-1).item())
+    pred = pred_norm
+    if regression_means is not None and regression_stds is not None:
+      pred = pred_norm * float(regression_stds[task_idx]) + float(regression_means[task_idx])
+    return {
+      "type": "regression",
+      "value": pred,
+      "normalized_value": pred_norm,
     }
-    if logits.numel() == 2:
-      task_prediction["positive_probability"] = float(probs[1].item())
-    predictions[task_name] = task_prediction
+
+  probs = torch.softmax(logits, dim=-1)
+  task_prediction = {
+    "type": "classification",
+    "predicted_class": int(torch.argmax(probs).item()),
+    "probabilities": probs.tolist(),
+  }
+  if logits.numel() == 2:
+    task_prediction["positive_probability"] = float(probs[1].item())
+  return task_prediction
+
+
+def predict_sequences(records, model, tokenizer, task_order, task_metas, regression_means, regression_stds, batch_size: int, max_tokens_per_batch: int | None):
+  predictions = [None] * len(records)
+
+  for batch_indices in iter_sequence_batches(records, batch_size=batch_size, max_tokens_per_batch=max_tokens_per_batch):
+    batch_sequences = [preprocess_sequence(records[idx]["sequence"]) for idx in batch_indices]
+    encoded = tokenizer(
+      batch_sequences,
+      add_special_tokens=True,
+      padding="longest",
+      return_tensors="pt",
+    ).to(DEVICE)
+
+    with torch.no_grad():
+      with torch.amp.autocast("cuda", dtype=torch.bfloat16, enabled=AMP_ENABLED):
+        outputs = model(encoded.input_ids, encoded.attention_mask)
+
+    for row_idx, record_idx in enumerate(batch_indices):
+      task_predictions = {}
+      for task_idx, task_name in enumerate(task_order):
+        task_predictions[task_name] = _prediction_from_logits(
+          outputs[task_name][row_idx],
+          task_idx,
+          task_name,
+          task_metas,
+          regression_means,
+          regression_stds,
+        )
+      predictions[record_idx] = task_predictions
 
   return predictions
 
@@ -224,7 +224,14 @@ def build_arg_parser():
   parser = argparse.ArgumentParser(description="Run inference with a trained multitask ProstT5 adapter checkpoint.")
   parser.add_argument("--checkpoint", help="Path to a saved adapter checkpoint. Defaults to the newest local checkpoint.")
   parser.add_argument("--sequence", help="Raw amino-acid sequence to score.")
-  parser.add_argument("--pdb", help="Path to a PDB file to convert into a sequence before scoring.")
+  parser.add_argument("--fasta", help="Path to a FASTA file containing one or more amino-acid sequences to score.")
+  parser.add_argument("--batch-size", type=int, default=16, help="Maximum number of sequences per inference batch when using FASTA input.")
+  parser.add_argument(
+    "--max-tokens-per-batch",
+    type=int,
+    default=12000,
+    help="Approximate padded token budget per inference batch. Lower this if GPU memory is limited.",
+  )
   return parser
 
 
@@ -232,42 +239,64 @@ def main():
   parser = build_arg_parser()
   args = parser.parse_args()
 
-  provided_inputs = sum(bool(value) for value in (args.sequence, args.pdb))
+  provided_inputs = sum(bool(value) for value in (args.sequence, args.fasta))
   if provided_inputs != 1:
-    raise SystemExit("Provide exactly one of --sequence or --pdb.")
+    raise SystemExit("Provide exactly one of --sequence or --fasta.")
+
+  if args.batch_size <= 0:
+    raise SystemExit("--batch-size must be greater than zero.")
+  if args.max_tokens_per_batch is not None and args.max_tokens_per_batch <= 0:
+    raise SystemExit("--max-tokens-per-batch must be greater than zero.")
 
   if args.sequence:
-    sequence = args.sequence.strip()
-    source = "raw sequence"
+    records = [
+      {
+        "name": "input_sequence",
+        "sequence": normalize_sequence(args.sequence),
+        "source": "raw sequence",
+      }
+    ]
   else:
-    pdb_path = Path(args.pdb)
-    sequence = load_sequence_from_pdb(pdb_path)
-    source = str(pdb_path)
+    records = load_fasta_sequences(Path(args.fasta))
 
   checkpoint_path = resolve_checkpoint_path(args.checkpoint)
   model, tokenizer, task_order, task_metas, regression_means, regression_stds = load_model_and_tokenizer(checkpoint_path)
-  predictions = predict_sequence(sequence, model, tokenizer, task_order, task_metas, regression_means, regression_stds)
+  predictions = predict_sequences(
+    records,
+    model,
+    tokenizer,
+    task_order,
+    task_metas,
+    regression_means,
+    regression_stds,
+    batch_size=args.batch_size,
+    max_tokens_per_batch=args.max_tokens_per_batch,
+  )
 
   print(f"Checkpoint: {checkpoint_path}")
-  print(f"Source: {source}")
-  print(f"Sequence length: {len(sequence)}")
-  for task_name in task_order:
-    prediction = predictions[task_name]
-    if prediction["type"] == "regression":
-      print(
-        f"{task_name}: value={prediction['value']:.4f} "
-        f"(normalized={prediction['normalized_value']:.4f})"
-      )
-      continue
+  print(f"Inputs scored: {len(records)}")
+  for record, record_predictions in zip(records, predictions):
+    print()
+    print(f"Name: {record['name']}")
+    print(f"Source: {record['source']}")
+    print(f"Sequence length: {len(record['sequence'])}")
+    for task_name in task_order:
+      prediction = record_predictions[task_name]
+      if prediction["type"] == "regression":
+        print(
+          f"{task_name}: value={prediction['value']:.4f} "
+          f"(normalized={prediction['normalized_value']:.4f})"
+        )
+        continue
 
-    if "positive_probability" in prediction:
-      print(
-        f"{task_name}: class={prediction['predicted_class']} "
-        f"positive_prob={prediction['positive_probability']:.4f}"
-      )
-    else:
-      probs = ", ".join(f"{prob:.4f}" for prob in prediction["probabilities"])
-      print(f"{task_name}: class={prediction['predicted_class']} probs=[{probs}]")
+      if "positive_probability" in prediction:
+        print(
+          f"{task_name}: class={prediction['predicted_class']} "
+          f"positive_prob={prediction['positive_probability']:.4f}"
+        )
+      else:
+        probs = ", ".join(f"{prob:.4f}" for prob in prediction["probabilities"])
+        print(f"{task_name}: class={prediction['predicted_class']} probs=[{probs}]")
 
 
 if __name__ == "__main__":
