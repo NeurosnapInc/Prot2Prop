@@ -3,6 +3,7 @@ Run multitask ProstT5 adapter inference from a raw amino-acid sequence or FASTA 
 """
 
 import argparse
+import csv
 import re
 from pathlib import Path
 
@@ -220,11 +221,59 @@ def predict_sequences(records, model, tokenizer, task_order, task_metas, regress
   return predictions
 
 
+def resolve_output_csv_path(output_csv: str | None, fasta_path: str | None) -> Path:
+  if output_csv:
+    return Path(output_csv)
+  if fasta_path:
+    fasta = Path(fasta_path)
+    return fasta.with_suffix(f"{fasta.suffix}.predictions.csv") if fasta.suffix else fasta.with_name(f"{fasta.name}.predictions.csv")
+  return Path("inference_predictions.csv")
+
+
+def _append_prediction_columns(row: dict, task_name: str, prediction: dict):
+  if prediction["type"] == "regression":
+    row[f"{task_name}_value"] = prediction["value"]
+    row[f"{task_name}_normalized_value"] = prediction["normalized_value"]
+    return
+
+  row[f"{task_name}_predicted_class"] = prediction["predicted_class"]
+  if "positive_probability" in prediction:
+    row[f"{task_name}_positive_probability"] = prediction["positive_probability"]
+  for class_idx, probability in enumerate(prediction["probabilities"]):
+    row[f"{task_name}_probability_class_{class_idx}"] = probability
+
+
+def write_predictions_csv(output_csv_path: Path, records, predictions, task_order):
+  rows = []
+  fieldnames = ["name", "sequence"]
+
+  for record, record_predictions in zip(records, predictions):
+    row = {
+      "name": record["name"],
+      "sequence": record["sequence"],
+    }
+    for task_name in task_order:
+      _append_prediction_columns(row, task_name, record_predictions[task_name])
+    rows.append(row)
+
+  for row in rows:
+    for fieldname in row.keys():
+      if fieldname not in fieldnames:
+        fieldnames.append(fieldname)
+
+  output_csv_path.parent.mkdir(parents=True, exist_ok=True)
+  with output_csv_path.open("w", newline="", encoding="utf-8") as handle:
+    writer = csv.DictWriter(handle, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(rows)
+
+
 def build_arg_parser():
   parser = argparse.ArgumentParser(description="Run inference with a trained multitask ProstT5 adapter checkpoint.")
   parser.add_argument("--checkpoint", help="Path to a saved adapter checkpoint. Defaults to the newest local checkpoint.")
   parser.add_argument("--sequence", help="Raw amino-acid sequence to score.")
   parser.add_argument("--fasta", help="Path to a FASTA file containing one or more amino-acid sequences to score.")
+  parser.add_argument("--output-csv", help="Path to write a CSV of prediction outputs. Defaults to a path derived from the FASTA input or ./inference_predictions.csv.")
   parser.add_argument("--batch-size", type=int, default=16, help="Maximum number of sequences per inference batch when using FASTA input.")
   parser.add_argument(
     "--max-tokens-per-batch",
@@ -259,6 +308,7 @@ def main():
   else:
     records = load_fasta_sequences(Path(args.fasta))
 
+  output_csv_path = resolve_output_csv_path(args.output_csv, args.fasta)
   checkpoint_path = resolve_checkpoint_path(args.checkpoint)
   model, tokenizer, task_order, task_metas, regression_means, regression_stds = load_model_and_tokenizer(checkpoint_path)
   predictions = predict_sequences(
@@ -272,9 +322,11 @@ def main():
     batch_size=args.batch_size,
     max_tokens_per_batch=args.max_tokens_per_batch,
   )
+  write_predictions_csv(output_csv_path, records, predictions, task_order)
 
   print(f"Checkpoint: {checkpoint_path}")
   print(f"Inputs scored: {len(records)}")
+  print(f"CSV: {output_csv_path}")
   for record, record_predictions in zip(records, predictions):
     print()
     print(f"Name: {record['name']}")
