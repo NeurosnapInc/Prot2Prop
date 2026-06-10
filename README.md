@@ -86,6 +86,12 @@ python tokenize_data.py
 python train.py
 ```
 
+## Inference
+Download the Hugging Face ProstT5 assets without running prediction:
+```sh
+python inference.py --download-weights
+```
+
 ## Results
 ### Version 2026-04-26
 - Increased task-head capacity beyond the original `LayerNorm + Linear` design by introducing small MLP heads, with the main goal of improving regression calibration and expressiveness.
