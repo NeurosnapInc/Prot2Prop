@@ -379,6 +379,36 @@ expression_yield        11204  0.9956  -0.2710    -0.0772    0.6986    0.5716  0
 folding_stability       12562  0.8335  -0.6896    -1.3020    1.0222    0.4884  0.6411  0.8412
 ```
 
+##### Test Split
+```
+task                   dtype  n      acc     bal_acc  precision  recall  f1      auroc   auprc   label_ratio      pred_ratio
+---------------------  -----  -----  ------  -------  ---------  ------  ------  ------  ------  ---------------  ---------------
+material_production    bool   2795   0.7975  0.7718   0.8726     0.8345  0.8531  0.8663  0.9354  0:0.295 1:0.705  0:0.326 1:0.674
+solubility             bool   7093   0.7730  0.7769   0.7025     0.8015  0.7488  0.8697  0.8358  0:0.578 1:0.422  0:0.519 1:0.481
+temperature_stability  bool   41978  0.9297  0.9299   0.9074     0.9553  0.9308  0.9837  0.9838  0:0.505 1:0.495  0:0.479 1:0.521
+
+Regression Tasks
+task                    n      label_mean  label_std  pred_mean  pred_std  mae     rmse    spearman
+----------------------  -----  ----------  ---------  ---------  --------  ------  ------  --------
+aggregation_propensity  1762   -1.8958     1.7725     -1.6252    1.6633    0.6990  0.9410  0.8614
+expression_yield        11131  -0.0901     1.1459     0.1940     0.6934    0.5609  0.9532  0.7321
+folding_stability       12624  -1.3072     1.1998     -0.7398    1.2158    0.6773  0.8791  0.8384
+
+Checkpoint Classification Calibration Applied
+task                   cal_n  thr     acc     bal_acc  precision  recall  f1      auroc   auprc   label_ratio      pred_ratio
+---------------------  -----  ------  ------  -------  ---------  ------  ------  ------  ------  ---------------  ---------------
+material_production    2816   0.0500  0.8011  0.7025   0.8071     0.9431  0.8699  0.8663  0.9354  0:0.295 1:0.705  0:0.176 1:0.824
+solubility             7071   0.4300  0.7646  0.7736   0.6811     0.8313  0.7487  0.8697  0.8358  0:0.578 1:0.422  0:0.485 1:0.515
+temperature_stability  41981  0.6700  0.9319  0.9319   0.9295     0.9332  0.9314  0.9837  0.9838  0:0.505 1:0.495  0:0.503 1:0.497
+
+Checkpoint Regression Calibration Applied
+task                    cal_n  slope   intercept  pred_mean  pred_std  mae     rmse    spearman
+----------------------  -----  ------  ---------  ---------  --------  ------  ------  --------
+aggregation_propensity  1720   0.9261  -0.4233    -1.9283    1.5403    0.6636  0.8922  0.8614
+expression_yield        11204  0.9956  -0.2710    -0.0778    0.6904    0.5769  0.9100  0.7321
+folding_stability       12562  0.8335  -0.6896    -1.3063    1.0135    0.4863  0.6405  0.8384
+```
+
 #### Seed M (Older mixed seed version)
 ##### Validation Split
 ```
