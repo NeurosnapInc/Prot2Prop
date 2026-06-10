@@ -100,7 +100,7 @@ python inference.py --download-weights
 - Added post-hoc threshold tuning for binary classification tasks to test whether task-specific decision thresholds could improve `acc`, `balanced_acc`, `precision`, `recall`, and `F1`.
 - Added post-hoc linear calibration for regression tasks using `y_calibrated = a * y_pred + b` to correct prediction bias and under-dispersion without retraining.
 - Result: the architectural head changes were a clear improvement overall, while the post-hoc calibration steps produced modest but informative gains, especially for some regression tasks.
-
+##### Validation Split
 ```
 Classification Tasks
 task                   dtype  n      acc     bal_acc  precision  recall  f1      auroc   auprc   label_ratio      pred_ratio
@@ -138,7 +138,7 @@ folding_stability       6281   6281   0.8913  -0.7491    -1.2964    0.9734    0.
   `loss = mse_or_huber + lambda * pairwise_ranking_loss`
 - The goal was to preserve and strengthen relative ordering, since Spearman correlation was already reasonably strong on several tasks.
 - Result: this experiment did not improve the main validation metrics. Overall performance was slightly worse across both classification and regression, so this direction was not retained.
-
+##### Validation Split
 ```
 Classification Tasks
 task                   dtype  n      acc     bal_acc  precision  recall  f1      auroc   auprc   label_ratio      pred_ratio
@@ -175,6 +175,7 @@ folding_stability       6281   6281   0.8789  -0.8238    -1.2960    0.9502    0.
 - This change was intended to improve task-specific calibration and feature specialization while keeping the parameter increase modest.
 - Result: this was the strongest run so far. The main gains came from the regression tasks, with substantial improvements in both error (`MAE` / `RMSE`) and ranking quality (`Spearman`), while classification performance remained broadly stable.
 - Post-hoc calibration continued to show additional upside for some regression tasks, especially `folding_stability`, suggesting the learned representation is strong and remaining gains may come from better final calibration rather than major architectural changes.
+##### Validation Split
 ```
 Classification Tasks
 task                   dtype  n      acc     bal_acc  precision  recall  f1      auroc   auprc   label_ratio      pred_ratio
@@ -209,6 +210,7 @@ folding_stability       6281   6281   0.8312  -0.6213    -1.2956    1.0233    0.
 - Added learned uncertainty weighting so each task contributed through a trainable per-task uncertainty term rather than fixed equal weighting.
 - This changed the multitask balance but did not clearly improve the overall result.
 - `aggregation_propensity` and `temperature_stability` improved, but `expression_yield` and `folding_stability` both regressed, making the net effect mixed to slightly worse overall.
+##### Validation Split
 ```
 Classification Tasks
 task                   dtype  n      acc     bal_acc  precision  recall  f1      auroc   auprc   label_ratio      pred_ratio
@@ -247,6 +249,7 @@ folding_stability       6281   6281   0.8328  -0.6897    -1.2955    1.0077    0.
 - Compared with the previous best run (`2026-04-29`), this checkpoint looked roughly flat overall: classification moved slightly, ranking metrics were modestly stronger, and uncalibrated `folding_stability` regression was worse (`MAE 0.6435` vs `0.6260`) even though Spearman improved (`0.8440` vs `0.8373`).
 - The calibrated `folding_stability` MAE improved from `0.4853` to `0.4725`, an absolute gain of `0.0128` or about `2.6%`, but that effect is small and not cleanly apples-to-apples because older runs used validation-time post-hoc fitting while this checkpoint uses saved checkpoint calibration.
 - Practical takeaway: the measured `folding_stability` gain is modest enough that it may be within normal seed-to-seed variance, so this version does not yet make a strong case for keeping the evolutionary-alignment pathway on performance grounds alone.
+##### Validation Split
 ```
 Classification Tasks
 task                   dtype  n      acc     bal_acc  precision  recall  f1      auroc   auprc   label_ratio      pred_ratio
@@ -281,6 +284,7 @@ folding_stability       12562  0.8285  -0.6566    -1.3026    1.0324    0.4725  0
 - This is the final version, no particularly major changes, just training on different seeds and stuff
 
 #### Seed 42
+##### Validation Split
 ```
 Classification Tasks
 task                   dtype  n      acc     bal_acc  precision  recall  f1      auroc   auprc   label_ratio      pred_ratio
@@ -312,6 +316,7 @@ folding_stability       12562  0.8175  -0.6956    -1.3026    1.0193    0.4931  0
 ```
 
 #### Seed 26
+##### Validation Split
 ```
 Classification Tasks
 task                   dtype  n      acc     bal_acc  precision  recall  f1      auroc   auprc   label_ratio      pred_ratio
@@ -343,6 +348,7 @@ folding_stability       12562  0.8293  -0.7023    -1.3023    1.0136    0.5013  0
 ```
 
 #### Seed 1
+##### Validation Split
 ```
 Classification Tasks
 task                   dtype  n      acc     bal_acc  precision  recall  f1      auroc   auprc   label_ratio      pred_ratio
@@ -374,6 +380,7 @@ folding_stability       12562  0.8335  -0.6896    -1.3020    1.0222    0.4884  0
 ```
 
 #### Seed M (Older mixed seed version)
+##### Validation Split
 ```
 Classification Tasks
 task                   dtype  n      acc     bal_acc  precision  recall  f1      auroc   auprc   label_ratio      pred_ratio
@@ -410,6 +417,7 @@ folding_stability       6281   6281   0.8341  -0.6338    -1.2984    1.0151    0.
 - Classification moved only slightly and remained roughly within normal run-to-run variation.
 - Regression was mixed: the ensemble was solid, but it generally did not surpass the strongest single-seed checkpoints on the tasks that mattered most, especially when comparing against the best raw `Spearman` / `MAE` results from `aggregation_propensity`, `expression_yield`, and `folding_stability`.
 - Practical takeaway: ensembling did not provide a compelling enough gain to justify treating it as the default evaluation or deployment path, so the best single-checkpoint models remain the more meaningful reference point.
+##### Validation Split
 ```
 Classification Tasks
 task                   dtype  n      acc     bal_acc  precision  recall  f1      auroc   auprc   label_ratio      pred_ratio
