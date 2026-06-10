@@ -271,6 +271,11 @@ def write_predictions_csv(output_csv_path: Path, records, predictions, task_orde
 def build_arg_parser():
   parser = argparse.ArgumentParser(description="Run inference with a trained multitask ProstT5 adapter checkpoint.")
   parser.add_argument("--checkpoint", help="Path to a saved adapter checkpoint. Defaults to the newest local checkpoint.")
+  parser.add_argument(
+    "--download-weights",
+    action="store_true",
+    help="Download the ProstT5 tokenizer and backbone weights into the local Hugging Face cache, then exit.",
+  )
   parser.add_argument("--sequence", help="Raw amino-acid sequence to score.")
   parser.add_argument("--fasta", help="Path to a FASTA file containing one or more amino-acid sequences to score.")
   parser.add_argument("--output-csv", help="Path to write a CSV of prediction outputs. Defaults to a path derived from the FASTA input or ./inference_predictions.csv.")
@@ -287,6 +292,15 @@ def build_arg_parser():
 def main():
   parser = build_arg_parser()
   args = parser.parse_args()
+
+  if args.download_weights:
+    if args.sequence or args.fasta:
+      raise SystemExit("--download-weights cannot be combined with --sequence or --fasta.")
+    print(f"Downloading tokenizer and backbone weights for {MODEL_NAME}...")
+    tokenizer = T5Tokenizer.from_pretrained(MODEL_NAME, do_lower_case=False)
+    base_model = T5EncoderModel.from_pretrained(MODEL_NAME)
+    print(f"Downloaded ProstT5 assets for {base_model.name_or_path}.")
+    return
 
   provided_inputs = sum(bool(value) for value in (args.sequence, args.fasta))
   if provided_inputs != 1:
