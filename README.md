@@ -542,3 +542,20 @@ aggregation_propensity  860    860    0.9428  -0.3563    -1.8877    1.4800    0.
 expression_yield        5602   5602   1.0186  -0.2744    -0.0890    0.6925    0.5723  0.8868  0.7198
 folding_stability       6281   6281   0.8379  -0.6695    -1.2969    1.0199    0.4870  0.6359  0.8398
 ```
+
+### Naive One-Hot Linear Baseline
+Sanity-check baseline using fixed one-hot amino-acid sequence encodings with simple linear models rather than pretrained protein language model features. Binary tasks were evaluated with logistic regression and continuous tasks with ridge regression to estimate how much performance can be recovered from shallow linear sequence representations alone.
+```
+One-Hot Logistic Regression (validation)
+task                   dtype  n      acc     bal_acc  precision  recall  f1      auroc   auprc   label_ratio      pred_ratio
+---------------------  -----  -----  ------  -------  ---------  ------  ------  ------  ------  ---------------  ---------------
+material_production    bool   2816   0.6562  0.6197   0.7820     0.7094  0.7439  0.6803  0.8395  0:0.296 1:0.704  0:0.362 1:0.638
+solubility             bool   7071   0.6513  0.6479   0.5775     0.6270  0.6012  0.7045  0.5881  0:0.581 1:0.419  0:0.545 1:0.455
+temperature_stability  bool   41981  0.8391  0.8392   0.8294     0.8501  0.8396  0.9089  0.8995  0:0.505 1:0.495  0:0.492 1:0.508
+One-Hot Ridge Regression (validation)
+task                    n      label_mean  label_std  pred_mean  pred_std  mae     rmse    spearman
+----------------------  -----  ----------  ---------  ---------  --------  ------  ------  --------
+aggregation_propensity  1720   -1.8365     1.7641     -1.8133    1.4788    0.7560  1.0084  0.8390
+expression_yield        11204  -0.0776     1.1371     -0.0937    0.8588    0.5618  0.8347  0.7283
+folding_stability       12562  -1.3020     1.2068     -1.2884    0.8438    0.6757  0.8624  0.6754
+```
