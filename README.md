@@ -503,6 +503,9 @@ expression_yield        5602   5602   1.0229  -0.2723    -0.0884    0.6907    0.
 folding_stability       6281   6281   0.8341  -0.6338    -1.2984    1.0151    0.4916  0.6419  0.8348
 ```
 
+##### Test Split
+Not reported here because this version was developed under an earlier experimental setup, and the current checkpoint/seed conventions no longer map cleanly onto that stage of the project. Re-evaluating it on the present test pipeline could therefore be ambiguous and potentially misleading.
+
 #### 4 Checkpoint Ensemble
 - Evaluated a simple four-checkpoint prediction ensemble built from the strongest recent seeds and the older mixed-seed checkpoint.
 - Result: the ensemble was competitive, but it did **not** clearly beat the best single-checkpoint runs overall.
