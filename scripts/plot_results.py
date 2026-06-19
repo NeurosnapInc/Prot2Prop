@@ -149,34 +149,34 @@ FINAL_RUNS = {
 
 SEED1_CALIBRATION = {
   "classification_raw_f1": {
-    "material_production": 0.8373,
-    "solubility": 0.7456,
-    "temperature_stability": 0.9290,
+    "material_production": 0.8531,
+    "solubility": 0.7488,
+    "temperature_stability": 0.9308,
   },
   "classification_calibrated_f1": {
-    "material_production": 0.8565,
-    "solubility": 0.7474,
-    "temperature_stability": 0.9323,
+    "material_production": 0.8699,
+    "solubility": 0.7487,
+    "temperature_stability": 0.9314,
   },
   "regression_raw_mae": {
-    "aggregation_propensity": 0.7238,
-    "expression_yield": 0.5545,
-    "folding_stability": 0.6795,
+    "aggregation_propensity": 0.6990,
+    "expression_yield": 0.5609,
+    "folding_stability": 0.6773,
   },
   "regression_calibrated_mae": {
-    "aggregation_propensity": 0.6809,
-    "expression_yield": 0.5716,
-    "folding_stability": 0.4884,
+    "aggregation_propensity": 0.6636,
+    "expression_yield": 0.5769,
+    "folding_stability": 0.4863,
   },
   "regression_raw_rmse": {
-    "aggregation_propensity": 0.9559,
-    "expression_yield": 0.9377,
-    "folding_stability": 0.8800,
+    "aggregation_propensity": 0.9410,
+    "expression_yield": 0.9532,
+    "folding_stability": 0.8791,
   },
   "regression_calibrated_rmse": {
-    "aggregation_propensity": 0.8950,
-    "expression_yield": 0.8973,
-    "folding_stability": 0.6411,
+    "aggregation_propensity": 0.8922,
+    "expression_yield": 0.9100,
+    "folding_stability": 0.6405,
   },
 }
 
@@ -460,7 +460,7 @@ def build_seed1_calibration_figure():
   fig.update_yaxes(title_text="MAE", row=1, col=2)
   fig.update_yaxes(title_text="RMSE", row=1, col=3)
   fig.update_xaxes(tickangle=-30)
-  return _apply_theme(fig, "Effect of Post-hoc Calibration on the Final Seed 1 Checkpoint")
+  return _apply_theme(fig, "Effect of Post-hoc Calibration on the Final Seed 1 Checkpoint (Test Split)")
 
 
 def build_best_single_vs_ensemble_figure():
