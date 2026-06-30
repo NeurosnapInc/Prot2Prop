@@ -1,6 +1,8 @@
 # Prot2Prop
 Structure-aware fine-tuning of protein language models for joint prediction of multiple developability properties from protein structure inputs.
 
+Manuscript: [bioRxiv preprint](https://www.biorxiv.org/content/10.64898/2026.06.28.735009v1)
+
 ## Objectives
 This project aims to train **one shared adapter + lightweight task-specific residual adapters + task-specific heads** for key developability properties relevant to enzymes, binders, synthetic biology, and related protein engineering tasks.
 
