@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 
 import torch
+from huggingface_hub import snapshot_download
 from neurosnap.sequence.align import read_msa
 from transformers import T5EncoderModel, T5Tokenizer
 
@@ -189,7 +190,9 @@ def _prediction_from_logits(logits, task_idx, task_name, task_metas, regression_
   return task_prediction
 
 
-def predict_sequences(records, model, tokenizer, task_order, task_metas, regression_means, regression_stds, batch_size: int, max_tokens_per_batch: int | None):
+def predict_sequences(
+  records, model, tokenizer, task_order, task_metas, regression_means, regression_stds, batch_size: int, max_tokens_per_batch: int | None
+):
   predictions = [None] * len(records)
 
   for batch_indices in iter_sequence_batches(records, batch_size=batch_size, max_tokens_per_batch=max_tokens_per_batch):
@@ -278,7 +281,9 @@ def build_arg_parser():
   )
   parser.add_argument("--sequence", help="Raw amino-acid sequence to score.")
   parser.add_argument("--fasta", help="Path to a FASTA file containing one or more amino-acid sequences to score.")
-  parser.add_argument("--output-csv", help="Path to write a CSV of prediction outputs. Defaults to a path derived from the FASTA input or ./inference_predictions.csv.")
+  parser.add_argument(
+    "--output-csv", help="Path to write a CSV of prediction outputs. Defaults to a path derived from the FASTA input or ./inference_predictions.csv."
+  )
   parser.add_argument("--batch-size", type=int, default=16, help="Maximum number of sequences per inference batch when using FASTA input.")
   parser.add_argument(
     "--max-tokens-per-batch",
@@ -297,9 +302,23 @@ def main():
     if args.sequence or args.fasta:
       raise SystemExit("--download-weights cannot be combined with --sequence or --fasta.")
     print(f"Downloading tokenizer and backbone weights for {MODEL_NAME}...")
-    tokenizer = T5Tokenizer.from_pretrained(MODEL_NAME, do_lower_case=False)
-    base_model = T5EncoderModel.from_pretrained(MODEL_NAME)
-    print(f"Downloaded ProstT5 assets for {base_model.name_or_path}.")
+    # Download ProstT5 assets into the local Hugging Face cache without instantiating the model.
+    snapshot_path = snapshot_download(
+      repo_id=MODEL_NAME,
+      allow_patterns=[
+        "*.json",
+        "*.model",
+        "*.txt",
+        "*.safetensors",
+        "*.bin",
+        "*.py",
+        "spiece.*",
+        "tokenizer.*",
+        "special_tokens_map.*",
+        "generation_config.*",
+      ],
+    )
+    print(f"Downloaded ProstT5 assets to {snapshot_path}.")
     return
 
   provided_inputs = sum(bool(value) for value in (args.sequence, args.fasta))
@@ -349,17 +368,11 @@ def main():
     for task_name in task_order:
       prediction = record_predictions[task_name]
       if prediction["type"] == "regression":
-        print(
-          f"{task_name}: value={prediction['value']:.4f} "
-          f"(normalized={prediction['normalized_value']:.4f})"
-        )
+        print(f"{task_name}: value={prediction['value']:.4f} (normalized={prediction['normalized_value']:.4f})")
         continue
 
       if "positive_probability" in prediction:
-        print(
-          f"{task_name}: class={prediction['predicted_class']} "
-          f"positive_prob={prediction['positive_probability']:.4f}"
-        )
+        print(f"{task_name}: class={prediction['predicted_class']} positive_prob={prediction['positive_probability']:.4f}")
       else:
         probs = ", ".join(f"{prob:.4f}" for prob in prediction["probabilities"])
         print(f"{task_name}: class={prediction['predicted_class']} probs=[{probs}]")
