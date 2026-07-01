@@ -9,7 +9,6 @@ import re
 from pathlib import Path
 
 import torch
-from huggingface_hub import snapshot_download
 from neurosnap.sequence.align import read_msa
 from transformers import T5EncoderModel, T5Tokenizer
 
@@ -27,25 +26,6 @@ DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 AMP_ENABLED = DEVICE.type == "cuda"
 VALID_SEQUENCE_PATTERN = re.compile(r"^[ACDEFGHIKLMNPQRSTVWYUZOBX]+$")
 DEFAULT_INFERENCE_CHECKPOINT = Path("checkpoints/prostt5_multitask_adapter_best_2026-05-27_seed_1.pt")
-
-
-def download_model_assets(model_name: str) -> str:
-  """Download ProstT5 assets into the default Hugging Face cache without instantiating the model."""
-  return snapshot_download(
-    repo_id=model_name,
-    allow_patterns=[
-      "*.json",
-      "*.model",
-      "*.txt",
-      "*.safetensors",
-      "*.bin",
-      "*.py",
-      "spiece.*",
-      "tokenizer.*",
-      "special_tokens_map.*",
-      "generation_config.*",
-    ],
-  )
 
 
 def preprocess_sequence(seq: str) -> str:
@@ -342,9 +322,11 @@ def main():
   if args.download_weights:
     if args.sequence or args.fasta:
       raise SystemExit("--download-weights cannot be combined with --sequence or --fasta.")
-    print(f"Downloading tokenizer and backbone weights for {MODEL_NAME}...")
-    snapshot_path = download_model_assets(MODEL_NAME)
-    print(f"Downloaded ProstT5 assets to {snapshot_path}.")
+    print(f"Downloading tokenizer for {MODEL_NAME}...")
+    T5Tokenizer.from_pretrained(MODEL_NAME, do_lower_case=False)
+    print(f"Downloading backbone weights for {MODEL_NAME}...")
+    T5EncoderModel.from_pretrained(MODEL_NAME)
+    print(f"Downloaded ProstT5 assets for {MODEL_NAME}.")
     return
 
   provided_inputs = sum(bool(value) for value in (args.sequence, args.fasta))

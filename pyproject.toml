@@ -21,7 +21,6 @@ requires-python = ">=3.8"
 dependencies = [
   "torch",
   "transformers",
-  "huggingface_hub",
   "sentencepiece",
   "duckdb",
   "neurosnap",
