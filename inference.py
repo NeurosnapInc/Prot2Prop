@@ -4,6 +4,7 @@ Run multitask ProstT5 adapter inference from a raw amino-acid sequence or FASTA 
 
 import argparse
 import csv
+import os
 import re
 from pathlib import Path
 
@@ -26,6 +27,25 @@ DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 AMP_ENABLED = DEVICE.type == "cuda"
 VALID_SEQUENCE_PATTERN = re.compile(r"^[ACDEFGHIKLMNPQRSTVWYUZOBX]+$")
 DEFAULT_INFERENCE_CHECKPOINT = Path("checkpoints/prostt5_multitask_adapter_best_2026-05-27_seed_1.pt")
+
+
+def download_model_assets(model_name: str) -> str:
+  """Download ProstT5 assets into the default Hugging Face cache without instantiating the model."""
+  return snapshot_download(
+    repo_id=model_name,
+    allow_patterns=[
+      "*.json",
+      "*.model",
+      "*.txt",
+      "*.safetensors",
+      "*.bin",
+      "*.py",
+      "spiece.*",
+      "tokenizer.*",
+      "special_tokens_map.*",
+      "generation_config.*",
+    ],
+  )
 
 
 def preprocess_sequence(seq: str) -> str:
@@ -97,7 +117,14 @@ def resolve_checkpoint_path(checkpoint_arg: str | None) -> Path:
   return candidates[0]
 
 
-def load_model_and_tokenizer(checkpoint_path: Path):
+def should_use_local_files_only(args) -> bool:
+  """Return whether Hugging Face assets should be loaded strictly from local cache."""
+  env_value = os.getenv("PROT2PROP_LOCAL_FILES_ONLY", "")
+  env_enabled = env_value.strip().lower() in {"1", "true", "yes", "on"}
+  return bool(getattr(args, "local_files_only", False) or env_enabled)
+
+
+def load_model_and_tokenizer(checkpoint_path: Path, local_files_only: bool = False):
   checkpoint = torch.load(checkpoint_path, map_location="cpu")
   model_config = checkpoint["config"]
   task_order = model_config["task_names"]
@@ -119,8 +146,8 @@ def load_model_and_tokenizer(checkpoint_path: Path):
   else:
     task_adapter_dim = model_config.get("task_adapter_dim", TASK_ADAPTER_DIM)
 
-  tokenizer = T5Tokenizer.from_pretrained(model_name, do_lower_case=False)
-  base_model = T5EncoderModel.from_pretrained(model_name).to(DEVICE)
+  tokenizer = T5Tokenizer.from_pretrained(model_name, do_lower_case=False, local_files_only=local_files_only)
+  base_model = T5EncoderModel.from_pretrained(model_name, local_files_only=local_files_only).to(DEVICE)
   if DEVICE.type == "cuda":
     base_model.bfloat16()
 
@@ -300,6 +327,11 @@ def build_arg_parser():
     default=12000,
     help="Approximate padded token budget per inference batch. Lower this if GPU memory is limited.",
   )
+  parser.add_argument(
+    "--local-files-only",
+    action="store_true",
+    help="Load ProstT5 assets only from the local Hugging Face cache. You can also set PROT2PROP_LOCAL_FILES_ONLY=1.",
+  )
   return parser
 
 
@@ -311,22 +343,7 @@ def main():
     if args.sequence or args.fasta:
       raise SystemExit("--download-weights cannot be combined with --sequence or --fasta.")
     print(f"Downloading tokenizer and backbone weights for {MODEL_NAME}...")
-    # Download ProstT5 assets into the local Hugging Face cache without instantiating the model.
-    snapshot_path = snapshot_download(
-      repo_id=MODEL_NAME,
-      allow_patterns=[
-        "*.json",
-        "*.model",
-        "*.txt",
-        "*.safetensors",
-        "*.bin",
-        "*.py",
-        "spiece.*",
-        "tokenizer.*",
-        "special_tokens_map.*",
-        "generation_config.*",
-      ],
-    )
+    snapshot_path = download_model_assets(MODEL_NAME)
     print(f"Downloaded ProstT5 assets to {snapshot_path}.")
     return
 
@@ -352,7 +369,11 @@ def main():
 
   output_csv_path = resolve_output_csv_path(args.output_csv, args.fasta)
   checkpoint_path = resolve_checkpoint_path(args.checkpoint)
-  model, tokenizer, task_order, task_metas, regression_means, regression_stds = load_model_and_tokenizer(checkpoint_path)
+  local_files_only = should_use_local_files_only(args)
+  model, tokenizer, task_order, task_metas, regression_means, regression_stds = load_model_and_tokenizer(
+    checkpoint_path,
+    local_files_only=local_files_only,
+  )
   predictions = predict_sequences(
     records,
     model,
