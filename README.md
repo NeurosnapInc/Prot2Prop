@@ -94,6 +94,8 @@ Download the Hugging Face ProstT5 assets without running prediction:
 python inference.py --download-weights
 ```
 
+When `--checkpoint` is omitted, inference defaults to `checkpoints/prostt5_multitask_adapter_best_2026-05-27_seed_1.pt`.
+
 ## Results
 ### Version 2026-04-26
 - Increased task-head capacity beyond the original `LayerNorm + Linear` design by introducing small MLP heads, with the main goal of improving regression calibration and expressiveness.

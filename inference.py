@@ -25,6 +25,7 @@ from model import MultiTaskAdapterModel
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 AMP_ENABLED = DEVICE.type == "cuda"
 VALID_SEQUENCE_PATTERN = re.compile(r"^[ACDEFGHIKLMNPQRSTVWYUZOBX]+$")
+DEFAULT_INFERENCE_CHECKPOINT = Path("checkpoints/prostt5_multitask_adapter_best_2026-05-27_seed_1.pt")
 
 
 def preprocess_sequence(seq: str) -> str:
@@ -82,9 +83,17 @@ def resolve_checkpoint_path(checkpoint_arg: str | None) -> Path:
       raise FileNotFoundError(f"Checkpoint not found: {checkpoint_path}")
     return checkpoint_path
 
-  candidates = sorted(Path(".").glob("prostt5_multitask_adapter_best*.pt"), key=lambda path: path.stat().st_mtime, reverse=True)
+  if DEFAULT_INFERENCE_CHECKPOINT.exists():
+    return DEFAULT_INFERENCE_CHECKPOINT
+
+  candidates = sorted(Path("checkpoints").glob("prostt5_multitask_adapter_best*.pt"), key=lambda path: path.stat().st_mtime, reverse=True)
   if not candidates:
-    raise FileNotFoundError("No checkpoint found matching 'prostt5_multitask_adapter_best*.pt'.")
+    candidates = sorted(Path(".").glob("prostt5_multitask_adapter_best*.pt"), key=lambda path: path.stat().st_mtime, reverse=True)
+  if not candidates:
+    raise FileNotFoundError(
+      f"Default checkpoint not found at '{DEFAULT_INFERENCE_CHECKPOINT}' and no fallback checkpoint matched "
+      "'checkpoints/prostt5_multitask_adapter_best*.pt' or './prostt5_multitask_adapter_best*.pt'."
+    )
   return candidates[0]
 
 
@@ -273,7 +282,7 @@ def write_predictions_csv(output_csv_path: Path, records, predictions, task_orde
 
 def build_arg_parser():
   parser = argparse.ArgumentParser(description="Run inference with a trained multitask ProstT5 adapter checkpoint.")
-  parser.add_argument("--checkpoint", help="Path to a saved adapter checkpoint. Defaults to the newest local checkpoint.")
+  parser.add_argument("--checkpoint", help=f"Path to a saved adapter checkpoint. Defaults to {DEFAULT_INFERENCE_CHECKPOINT}.")
   parser.add_argument(
     "--download-weights",
     action="store_true",
