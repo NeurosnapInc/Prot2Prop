@@ -6,6 +6,7 @@ import argparse
 import csv
 import os
 import re
+import shutil
 from pathlib import Path
 
 import torch
@@ -322,11 +323,28 @@ def main():
   if args.download_weights:
     if args.sequence or args.fasta:
       raise SystemExit("--download-weights cannot be combined with --sequence or --fasta.")
+    offload_folder = "/tmp/prostt5_offload"
     print(f"Downloading tokenizer for {MODEL_NAME}...")
     T5Tokenizer.from_pretrained(MODEL_NAME, do_lower_case=False)
     print(f"Downloading backbone weights for {MODEL_NAME}...")
-    warm_model = T5EncoderModel.from_pretrained(MODEL_NAME, low_cpu_mem_usage=True)
-    del warm_model
+    warm_model = None
+    try:
+      warm_model = T5EncoderModel.from_pretrained(
+        MODEL_NAME,
+        use_safetensors=True,
+        device_map="auto",
+        max_memory={
+          0: "6GiB",
+          "cpu": "6GiB",
+        },
+        offload_folder=offload_folder,
+        offload_state_dict=True,
+        torch_dtype=torch.float16,
+        low_cpu_mem_usage=True,
+      )
+    finally:
+      del warm_model
+      shutil.rmtree(offload_folder, ignore_errors=True)
     print(f"Downloaded ProstT5 assets for {MODEL_NAME}.")
     return
 
