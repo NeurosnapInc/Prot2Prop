@@ -325,7 +325,8 @@ def main():
     print(f"Downloading tokenizer for {MODEL_NAME}...")
     T5Tokenizer.from_pretrained(MODEL_NAME, do_lower_case=False)
     print(f"Downloading backbone weights for {MODEL_NAME}...")
-    T5EncoderModel.from_pretrained(MODEL_NAME)
+    warm_model = T5EncoderModel.from_pretrained(MODEL_NAME, low_cpu_mem_usage=True)
+    del warm_model
     print(f"Downloaded ProstT5 assets for {MODEL_NAME}.")
     return
 
