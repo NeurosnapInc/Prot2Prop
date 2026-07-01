@@ -39,8 +39,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/NeurosnapInc/TODO"
-Issues = "https://github.com/NeurosnapInc/TODO/issues"
+Homepage = "https://github.com/NeurosnapInc/Prot2Prop"
+Issues = "https://github.com/NeurosnapInc/Prot2Prop/issues"
 
 [tool.setuptools]
 py-modules = ["aggregate_data", "calibration", "config", "ensemble_validate", "inference", "model", "tokenize_data", "train", "validate"]
