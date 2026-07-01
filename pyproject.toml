@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "prot2prop"
-version = "2026.02.03"
+version = "2026.07.01"
 authors = [
   {name="Keaun Amani"},
 ]
