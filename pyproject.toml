@@ -8,7 +8,7 @@ version = "2026.02.03"
 authors = [
   {name="Keaun Amani"},
 ]
-description = "Models for protein property prediction (WIP)."
+description = "Structure-aware multitask protein property prediction with fine-tuned protein language models."
 license = {file = "LICENSE"}
 readme = "README.md"
 classifiers = [
