@@ -332,14 +332,11 @@ def main():
       warm_model = T5EncoderModel.from_pretrained(
         MODEL_NAME,
         use_safetensors=True,
-        device_map="auto",
-        max_memory={
-          0: "6GiB",
-          "cpu": "6GiB",
-        },
+        device_map={"": "cpu"},
+        max_memory={"cpu": "4GiB"},
         offload_folder=offload_folder,
         offload_state_dict=True,
-        torch_dtype=torch.float16,
+        torch_dtype=torch.float32,
         low_cpu_mem_usage=True,
       )
     finally:
